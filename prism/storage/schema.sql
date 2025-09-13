@@ -22,29 +22,6 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS messages_scope_idx
   ON messages(guild_id, channel_id, ts);
 
--- Revamped user_facts schema (destructive create acceptable for dev)
-DROP TABLE IF EXISTS user_facts;
-CREATE TABLE user_facts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  guild_id TEXT,
-  user_id TEXT,
-  key TEXT NOT NULL,
-  value TEXT NOT NULL,
-  normalized_value TEXT,
-  confidence REAL NOT NULL DEFAULT 0.8,
-  status TEXT NOT NULL DEFAULT 'candidate', -- candidate|confirmed
-  support_count INTEGER NOT NULL DEFAULT 1,
-  source TEXT, -- explicit|implicit
-  evidence TEXT,
-  last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS user_facts_idx
-  ON user_facts(guild_id, user_id, key);
-CREATE INDEX IF NOT EXISTS user_facts_norm_idx
-  ON user_facts(guild_id, user_id, key, normalized_value);
-
 CREATE TABLE IF NOT EXISTS emoji_index (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   guild_id TEXT,
@@ -76,16 +53,4 @@ CREATE TABLE IF NOT EXISTS reaction_log (
 CREATE INDEX IF NOT EXISTS reaction_log_idx
   ON reaction_log(guild_id, channel_id, ts);
 
--- Facts backfill progress
-CREATE TABLE IF NOT EXISTS facts_backfill (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  guild_id TEXT,
-  channel_id TEXT,
-  last_message_id TEXT,
-  processed_count INTEGER DEFAULT 0,
-  status TEXT DEFAULT 'idle', -- idle|running|stopped|completed|error
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS facts_backfill_unique
-  ON facts_backfill(guild_id, channel_id);
+-- Removed user_facts and facts_backfill tables (learning disabled)

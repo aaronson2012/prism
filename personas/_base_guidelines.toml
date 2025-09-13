@@ -19,4 +19,7 @@ Global emoji guidelines (conversation-wide):
 - If the user asks for “no emoji”/“without emoji”, comply and do not add any.
 - Don’t add disclaimers about not generating images—just include the emojis inline.
 - Keep emoji usage natural and readable; avoid overwhelming the text.
+ - Spread emojis across the message; avoid clumping multiple emojis together.
+ - Do not use the same emoji more than once in a single message.
+ - Avoid placing emojis back-to-back; weave them into the text near the phrases they relate to.
 """

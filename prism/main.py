@@ -12,8 +12,6 @@ from .services.db import Database
 from .services.settings import SettingsService
 from .services.personas import PersonasService
 from .services.memory import MemoryService, Message as MemMessage
-from .services.user_learning import UserLearningService, LearningConfig
-from .services.facts_backfill import FactsBackfillService
 from .services.emoji_index import EmojiIndexService
 from .services.reaction_engine import ReactionEngine, ReactionEngineConfig
 from .services.rate_limit import RateLimiter, RateLimitConfig
@@ -73,6 +71,9 @@ def _load_base_guidelines_text() -> str:
         "- If the user asks for ‘no emoji’/‘without emoji’, comply and do not add any.\n"
         "- Don’t add disclaimers about not generating images—just include the emojis inline.\n"
         "- Keep emoji usage natural and readable; avoid overwhelming the text.\n"
+        "- Spread emojis across the message; avoid clumping multiple together.\n"
+        "- Do not use the same emoji more than once in a single message.\n"
+        "- Avoid placing emojis back-to-back; weave them into the text near relevant phrases.\n"
     )
     return fallback + "\n" + extra_house_rules
 
@@ -199,12 +200,6 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
             )
         except Exception as e:  # noqa: BLE001
             log.debug("Failed to persist message memory: %s", e)
-        # Learn user facts from all user messages (toggleable)
-        if bot.prism_cfg.learning_enabled:  # type: ignore[attr-defined]
-            try:
-                await bot.prism_learning.learn_from_message(orc, message.guild.id, message.author.id, message.content or "")
-            except Exception as e:  # noqa: BLE001
-                log.debug("Learning failed: %s", e)
 
         # Maybe add an emoji reaction (AI-gated, rate-limited) without blocking
         if bot.prism_cfg.emoji_reactions_enabled:  # type: ignore[attr-defined]
@@ -241,7 +236,7 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
             content[:120],
         )
 
-        # Resolve persona and build messages with channel history + participant facts
+        # Resolve persona and build messages with channel history
         # Use per-channel lock to avoid interleaved generations
         chan_key = str(message.channel.id)
         lock = bot.prism_channel_locks.setdefault(chan_key, asyncio.Lock())  # type: ignore[attr-defined]
@@ -252,10 +247,7 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                 if not persona:
                     persona = await bot.prism_personas.get("default")
                 base_rules = _load_base_guidelines_text()
-                facts_section = await build_facts_section(bot, message)
                 system_prompt = base_rules + "\n\n" + (persona.data.system_prompt if persona else "")
-                if facts_section:
-                    system_prompt += "\n\nFacts about participants:\n" + facts_section
                 # Emoji talk: provide compact candidates and style preference
                 if cfg.emoji_talk_enabled:  # type: ignore[attr-defined]
                     try:
@@ -356,7 +348,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                     chosen_model = persona.data.model or cfg.default_model if persona else cfg.default_model
                     text, _meta = await orc.chat_completion(messages, model=chosen_model)
                     reply = text.strip() if text else "(no content)"
-                    # Fallback sprinkle and enforcement: ensure at least one emoji per sentence when enabled
+                    # Fallback sprinkle and enforcement: ensure at least one emoji per sentence when enabled,
+                    # spread them out, and avoid duplicate emoji tokens in a single message.
                     if cfg.emoji_talk_enabled:  # type: ignore[attr-defined]
                         no_emoji_requested = any(w in content.lower() for w in ["no emoji", "no emojis", "without emoji", "without emojis"])
                         if not no_emoji_requested and reply:
@@ -426,6 +419,65 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                 reply2 = _ensure_emoji_per_sentence(reply)
                                 if reply2 != reply:
                                     reply = reply2
+                                # Post-process: de-duplicate repeated emojis and un-clump adjacent ones
+                                try:
+                                    # Remove duplicate custom emoji tokens beyond first occurrence
+                                    used_custom: set[str] = set()
+                                    def _dedupe_custom(match):
+                                        tok = match.group(0)
+                                        if tok in used_custom:
+                                            return ""  # drop duplicates
+                                        used_custom.add(tok)
+                                        return tok
+                                    reply = _re3.sub(r"<a?:[A-Za-z0-9_]+:\d+>", _dedupe_custom, reply)
+                                    # Optionally dedupe unicode emojis if library available
+                                    try:
+                                        if hasattr(_emoji_lib, "emoji_list"):
+                                            seen_uni: set[str] = set()
+                                            chars = list(reply)
+                                            i = 0
+                                            while i < len(chars):
+                                                ch = chars[i]
+                                                try:
+                                                    if _emoji_lib.is_emoji(ch):
+                                                        if ch in seen_uni:
+                                                            del chars[i]
+                                                            continue
+                                                        seen_uni.add(ch)
+                                                except Exception:
+                                                    pass
+                                                i += 1
+                                            reply = "".join(chars)
+                                    except Exception:
+                                        pass
+                                    # De-clump custom tokens: collapse runs like '<:a:1> <:b:2>' into a single token
+                                    try:
+                                        _cluster_re = _re3.compile(r"(<a?:[A-Za-z0-9_]+:\d+>)(?:\s*<a?:[A-Za-z0-9_]+:\d+>)+")
+                                        prev = None
+                                        while prev != reply:
+                                            prev = reply
+                                            reply = _cluster_re.sub(lambda m: m.group(1), reply)
+                                    except Exception:
+                                        pass
+                                    # De-clump unicode emojis when library available: drop consecutive emoji characters
+                                    try:
+                                        if hasattr(_emoji_lib, "is_emoji"):
+                                            out_chars = []
+                                            prev_was_emoji = False
+                                            for ch in reply:
+                                                try:
+                                                    is_e = _emoji_lib.is_emoji(ch)
+                                                except Exception:
+                                                    is_e = False
+                                                if is_e and prev_was_emoji:
+                                                    continue
+                                                out_chars.append(ch)
+                                                prev_was_emoji = is_e
+                                            reply = "".join(out_chars)
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    pass
                             except Exception:
                                 pass
                     await message.reply(reply, mention_author=False)
@@ -502,19 +554,8 @@ async def amain() -> None:
     bot.prism_personas = PersonasService(db, defaults_dir=os.path.join(os.path.dirname(__file__), "../personas"))  # type: ignore[attr-defined]
     await bot.prism_personas.load_builtins()  # type: ignore[attr-defined]
     bot.prism_memory = MemoryService(db)  # type: ignore[attr-defined]
-    bot.prism_learning = UserLearningService(db, LearningConfig())  # type: ignore[attr-defined]
     bot.prism_emoji = EmojiIndexService(db)  # type: ignore[attr-defined]
     bot.prism_orc = orc  # type: ignore[attr-defined]
-    bot.prism_backfill = FactsBackfillService(db, bot.prism_learning, backfill_model=cfg.backfill_model)  # type: ignore[attr-defined]
-    # Apply backfill performance config
-    try:
-        bfcfg = bot.prism_backfill.cfg  # type: ignore[attr-defined]
-        bfcfg.batch_size = max(1, int(getattr(cfg, 'backfill_batch_size', bfcfg.batch_size)))
-        bfcfg.sleep_between_batches = float(getattr(cfg, 'backfill_sleep_between_batches', bfcfg.sleep_between_batches))
-        bfcfg.channel_concurrency = max(1, int(getattr(cfg, 'backfill_channel_concurrency', bfcfg.channel_concurrency)))
-        bfcfg.message_concurrency = max(1, int(getattr(cfg, 'backfill_message_concurrency', bfcfg.message_concurrency)))
-    except Exception:
-        pass
     # Emoji reactions engine (AI-gated)
     bot.prism_react = ReactionEngine(  # type: ignore[attr-defined]
         db=db,
@@ -529,11 +570,9 @@ async def amain() -> None:
     # Load cogs
     from .cogs.personas import setup as setup_personas
     from .cogs.memory import setup as setup_memory
-    from .cogs.facts import setup as setup_facts
 
     setup_personas(bot)
     setup_memory(bot)
-    setup_facts(bot)
 
     # Install signal handlers for graceful shutdown (including SIGTERM)
     try:
@@ -542,11 +581,7 @@ async def amain() -> None:
         def _graceful_signal(sig_name: str) -> None:
             try:
                 log.info("Received %s, requesting graceful shutdown...", sig_name)
-                # Ask backfill to stop and close the bot; schedule both
-                try:
-                    loop.create_task(bot.prism_backfill.request_stop_all())  # type: ignore[attr-defined]
-                except Exception:
-                    pass
+                # Request bot close
                 loop.create_task(bot.close())
             except Exception:
                 pass
@@ -578,11 +613,6 @@ async def amain() -> None:
         log.exception("Bot failed to start: %s", e)
         raise
     finally:
-        # Request backfill stop to persist progress before closing resources
-        try:
-            await bot.prism_backfill.request_stop_all()  # type: ignore[attr-defined]
-        except Exception:
-            pass
         # Close external resources regardless of exit path
         try:
             await orc.aclose()
@@ -591,61 +621,8 @@ async def amain() -> None:
 
 
 async def build_facts_section(bot, message):
-    # Collect distinct recent human participants from channel history
-    try:
-        rows = await bot.prism_db.fetchall(
-            "SELECT DISTINCT user_id FROM messages WHERE guild_id = ? AND channel_id = ? AND role = 'user' "
-            "ORDER BY id DESC LIMIT ?",
-            (str(message.guild.id), str(message.channel.id), bot.prism_learning.cfg.participant_window_messages),
-        )
-    except Exception as e:  # noqa: BLE001
-        log.debug("Failed to fetch participants: %s", e)
-        rows = []
-    user_ids: List[int] = []
-    seen = set()
-    for r in rows:
-        uid_str = r[0]
-        if not uid_str:
-            continue
-        try:
-            uid = int(uid_str)
-        except Exception:
-            continue
-        if uid in seen:
-            continue
-        seen.add(uid)
-        user_ids.append(uid)
-    # Ensure the author is first
-    if message.author.id in seen:
-        user_ids.remove(message.author.id)
-    user_ids.insert(0, message.author.id)
-    # Build lines
-    lines: List[str] = []
-    # Only include confirmed or very high-confidence items, formatted as key: value
-    hi_conf = getattr(bot.prism_learning.cfg, "confirm_confidence", 0.85)
-    hi_conf = 0.9 if hi_conf < 0.9 else hi_conf
-    for uid in user_ids:
-        member = message.guild.get_member(uid)
-        name = member.display_name if member else f"User {uid}"
-        facts = await bot.prism_learning.get_top_facts(message.guild.id, uid, bot.prism_learning.cfg.facts_per_user)
-        if not facts:
-            continue
-        items: List[str] = []
-        for f in facts:
-            status = str(f.get("status") or "candidate")
-            conf = float(f.get("confidence") or 0.0)
-            if status != "confirmed" and conf < hi_conf:
-                continue
-            k = str(f.get("key") or "?")
-            v = str(f.get("value") or "").strip()
-            if not v:
-                continue
-            items.append(f"{k}: {v}")
-        if not items:
-            continue
-        values = "; ".join(items)
-        lines.append(f"- {name}: {values}")
-    return "\n".join(lines)
+    # Learning mechanism removed; no per-user facts are included.
+    return ""
 
 
 def main() -> None:

@@ -47,35 +47,20 @@ class MemoryService:
         self,
         guild_id: int,
         channel_id: int,
-        budget_tokens: int = 1200,
-        max_messages: int = 40,
+        budget_tokens: int = 0,
+        max_messages: int = 100,
     ) -> List[Dict[str, str]]:
         """
-        Returns a list of dicts with keys role/content for the recent context window,
-        trimmed by a simple token budget. Oldest messages are dropped first.
+        Return the last N messages for the channel, oldest-first.
+        The budget_tokens parameter is ignored; we always return up to max_messages (default 100).
         """
         rows = await self.db.fetchall(
-            "SELECT role, content, IFNULL(token_estimate, 0) as t FROM messages "
-            "WHERE guild_id = ? AND channel_id = ? ORDER BY id DESC LIMIT ?",
+            "SELECT role, content FROM messages WHERE guild_id = ? AND channel_id = ? ORDER BY id DESC LIMIT ?",
             (str(guild_id), str(channel_id), max_messages),
         )
-        messages = [
-            {"role": row[0], "content": row[1], "t": int(row[2]) if row[2] is not None else estimate_tokens(row[1])}
-            for row in rows
-        ]
+        messages = [{"role": row[0], "content": row[1]} for row in rows]
         messages.reverse()  # chronological order
-
-        total = 0
-        window: List[Dict[str, str]] = []
-        # Accumulate from newest backwards up to budget
-        for m in reversed(messages):
-            t = int(m.get("t") or estimate_tokens(m["content"]))
-            if total + t > budget_tokens:
-                continue
-            total += t
-            window.append({"role": m["role"], "content": m["content"]})
-        window.reverse()
-        return window
+        return messages
 
     async def clear_channel(self, guild_id: int, channel_id: int) -> None:
         await self.db.execute(
