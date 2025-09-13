@@ -98,24 +98,28 @@ class _Tee:
 def _pick_logs_dir() -> str:
     env_dir = os.getenv("PRISM_LOG_DIR")
     candidates = []
+    # 1) Explicit env override
     if env_dir:
         candidates.append(env_dir)
+    # 2) Working directory (systemd WorkingDirectory)
+    candidates.append(os.path.join(os.getcwd(), "logs"))
+    # 3) XDG state / Home state
     xdg_state = os.getenv("XDG_STATE_HOME")
     home = os.path.expanduser("~")
     if xdg_state:
         candidates.append(os.path.join(xdg_state, "prism", "logs"))
     elif home:
         candidates.append(os.path.join(home, ".local", "state", "prism", "logs"))
+    # 4) Home cache / fallback
     if home:
         candidates.append(os.path.join(home, ".cache", "prism", "logs"))
         candidates.append(os.path.join(home, "prism", "logs"))
+    # 5) tmp fallback
     try:
         uid = os.getuid()  # type: ignore[attr-defined]
     except Exception:
         uid = os.getpid()
     candidates.append(os.path.join("/tmp", f"prism-{uid}", "logs"))
-    # Last resort: CWD/logs
-    candidates.append(os.path.join(os.getcwd(), "logs"))
     for d in candidates:
         try:
             os.makedirs(d, exist_ok=True)
