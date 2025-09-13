@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import threading
 from logging import FileHandler
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime, timedelta
@@ -181,3 +182,36 @@ def setup_logging(level: str = "INFO") -> None:
                     pass
 
         sys.excepthook = _log_excepthook  # type: ignore[assignment]
+
+    # Log unhandled exceptions in threads (Python 3.8+)
+    try:
+        def _thread_excepthook(args: threading.ExceptHookArgs):  # type: ignore[name-defined]
+            try:
+                logging.getLogger("threading").error(
+                    "Unhandled thread exception in %s",
+                    getattr(args.thread, 'name', 'thread'),
+                    exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+                )
+            except Exception:
+                pass
+        threading.excepthook = _thread_excepthook  # type: ignore[assignment]
+    except Exception:
+        pass
+
+    # Log unraisable exceptions (e.g., destructor failures) — Python 3.8+
+    try:
+        def _unraisable_hook(unraisable):
+            try:
+                obj = getattr(unraisable, 'object', None)
+                msg = getattr(unraisable, 'message', None) or 'Unraisable exception'
+                logging.getLogger("unraisable").error(
+                    "%s in %r",
+                    msg,
+                    obj,
+                    exc_info=(unraisable.exc_type, unraisable.exc_value, unraisable.exc_traceback),
+                )
+            except Exception:
+                pass
+        sys.unraisablehook = _unraisable_hook  # type: ignore[assignment]
+    except Exception:
+        pass

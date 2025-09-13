@@ -388,6 +388,12 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
 
 
 async def amain() -> None:
+    # Initialize logging and console tee ASAP so early errors are captured
+    try:
+        setup_logging('INFO')
+    except Exception:
+        # Fall back silently; we'll try again after config
+        pass
     cfg = load_config()
     setup_logging(cfg.log_level)
     log.info("Starting Prism bot")
