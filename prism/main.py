@@ -118,7 +118,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                 log.info("Synced %d commands to guilds: %s", count, ",".join(str(g) for g in gids))
                 _log_command_tree("After sync")
         except Exception as e:  # noqa: BLE001
-            log.debug("Guild command sync failed: %s", e)
+            # Log full traceback so errors are visible in errors.log
+            log.exception("Guild command sync failed: %s", e)
         # Kick off emoji indexing for all guilds
         try:
             results = await bot.prism_emoji.index_all_guilds(bot)  # type: ignore[attr-defined]
@@ -390,6 +391,27 @@ async def amain() -> None:
     cfg = load_config()
     setup_logging(cfg.log_level)
     log.info("Starting Prism bot")
+    # Ensure asyncio task exceptions are logged to our handlers as well as stderr
+    try:
+        loop = asyncio.get_running_loop()
+        def _loop_exception_handler(loop, context):  # type: ignore[no-redef]
+            try:
+                logger = logging.getLogger("asyncio")
+                exc = context.get("exception")
+                msg = context.get("message") or ""
+                src = context.get("task") or context.get("future") or context.get("handle") or "loop"
+                if exc is not None:
+                    logger.error("Unhandled asyncio exception in %s: %s", src, msg, exc_info=exc)
+                else:
+                    logger.error("Unhandled asyncio error in %s: %s", src, msg)
+            finally:
+                try:
+                    loop.default_exception_handler(context)
+                except Exception:
+                    pass
+        loop.set_exception_handler(_loop_exception_handler)
+    except Exception:
+        pass
 
     bot = build_bot(cfg)
     db = await Database.init(cfg.db_path)
