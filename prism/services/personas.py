@@ -23,7 +23,6 @@ class PersonaModel(BaseModel):
     style: Optional[str] = None
     model: Optional[str] = None
     temperature: Optional[float] = None
-    emoji_style: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return self.model_dump()
@@ -175,8 +174,6 @@ class PersonasService:
             body.append(f"temperature = {model.temperature}")
         if model.style is not None:
             body.append(f"style = \"{esc(str(model.style))}\"")
-        if model.emoji_style is not None:
-            body.append(f"emoji_style = \"{esc(str(model.emoji_style))}\"")
         body.append("")
         body.append("[system_prompt]")
         body.append("content = \"\"\"")
