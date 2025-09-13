@@ -62,8 +62,10 @@ def _ensure_console_file_for_today() -> None:
 
 
 class _Tee:
-    def __init__(self, stream):
+    def __init__(self, stream, is_stderr: bool = False):
         self._stream = stream
+        self._is_stderr = is_stderr
+        self._buf = ""
 
     def write(self, data):
         try:
@@ -76,6 +78,19 @@ class _Tee:
                 _console_log_file.write(data)
         except Exception:
             pass
+        # Mirror stderr lines into the error logger so they land in errors.log
+        if self._is_stderr:
+            try:
+                # Buffer and emit per complete line to avoid fragment spam
+                self._buf += str(data)
+                while "\n" in self._buf:
+                    line, self._buf = self._buf.split("\n", 1)
+                    s = line.strip()
+                    if s:
+                        logging.getLogger("console.stderr").error(s)
+            except Exception:
+                # Never let logging failures break writes
+                self._buf = ""
 
     def flush(self):
         try:
@@ -87,6 +102,15 @@ class _Tee:
                 _console_log_file.flush()
         except Exception:
             pass
+        # Flush any trailing stderr buffer content
+        if self._is_stderr and self._buf:
+            try:
+                s = self._buf.strip()
+                if s:
+                    logging.getLogger("console.stderr").error(s)
+            except Exception:
+                pass
+            self._buf = ""
 
     def isatty(self):
         try:
@@ -151,8 +175,8 @@ def setup_logging(level: str = "INFO") -> None:
     if not _tee_installed:
         try:
             _ensure_console_file_for_today()
-            sys.stdout = _Tee(sys.stdout)
-            sys.stderr = _Tee(sys.stderr)
+            sys.stdout = _Tee(sys.stdout, is_stderr=False)
+            sys.stderr = _Tee(sys.stderr, is_stderr=True)
             _tee_installed = True
         except Exception:
             _tee_installed = False
