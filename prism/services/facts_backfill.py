@@ -29,6 +29,8 @@ class FactsBackfillService:
         self._tasks: Dict[str, asyncio.Task] = {}
         self._guild_tasks: Dict[int, asyncio.Task] = {}
         self.backfill_model_default: Optional[str] = backfill_model
+        # Global shutdown flag for graceful termination (Ctrl-C / SIGTERM)
+        self._shutdown_event: asyncio.Event = asyncio.Event()
 
     def _key(self, guild_id: int, channel_id: int) -> str:
         return f"{guild_id}:{channel_id}"
@@ -73,6 +75,60 @@ class FactsBackfillService:
         t = self._guild_tasks.get(guild_id)
         if t and not t.done():
             t.cancel()
+        # Also cancel any direct channel tasks under this guild
+        for key, task in list(self._tasks.items()):
+            try:
+                gs, cs = key.split(":", 1)
+                if int(gs) == int(guild_id) and task and not task.done():
+                    task.cancel()
+            except Exception:
+                pass
+        # Mark any running rows for this guild as stopped so resume can pick up later
+        try:
+            await self.db.execute(
+                "UPDATE facts_backfill SET status = 'stopped', updated_at = CURRENT_TIMESTAMP WHERE guild_id = ? AND status = 'running'",
+                (str(guild_id),),
+            )
+        except Exception:
+            pass
+
+    async def request_stop_all(self) -> None:
+        """Request all backfill tasks to stop gracefully and mark progress.
+
+        Sets a shutdown flag that loops check between batches, cancels known tasks,
+        and marks any running rows as stopped so that resume can continue later.
+        """
+        try:
+            self._shutdown_event.set()
+        except Exception:
+            pass
+        # Cancel channel tasks
+        for key, task in list(self._tasks.items()):
+            try:
+                if task and not task.done():
+                    task.cancel()
+            except Exception:
+                pass
+            # Persist stopped status for the channel
+            try:
+                gs, cs = key.split(":", 1)
+                await self._ensure_row(int(gs), int(cs), status="stopped")
+            except Exception:
+                pass
+        # Cancel guild tasks and mark running rows as stopped
+        for gid, task in list(self._guild_tasks.items()):
+            try:
+                if task and not task.done():
+                    task.cancel()
+            except Exception:
+                pass
+            try:
+                await self.db.execute(
+                    "UPDATE facts_backfill SET status = 'stopped', updated_at = CURRENT_TIMESTAMP WHERE guild_id = ? AND status = 'running'",
+                    (str(gid),),
+                )
+            except Exception:
+                pass
 
     async def get_guild_status(self, bot: Any, guild_id: int) -> Dict[str, Any]:
         """Aggregate status across all text channels in the guild."""
@@ -168,6 +224,10 @@ class FactsBackfillService:
             total_processed = 0
 
             while True:
+                # Respect global shutdown requests
+                if self._shutdown_event.is_set():
+                    await self._ensure_row(guild_id, channel_id, status="stopped")
+                    break
                 after = discord.Object(id=int(last_id)) if last_id else None
                 batch = []
                 try:
@@ -269,6 +329,10 @@ class FactsBackfillService:
 
                 if self.cfg.sleep_between_batches > 0:
                     await asyncio.sleep(self.cfg.sleep_between_batches)
+                # Check shutdown between batches
+                if self._shutdown_event.is_set():
+                    await self._ensure_row(guild_id, channel_id, status="stopped")
+                    break
 
         except asyncio.CancelledError:
             await self._ensure_row(guild_id, channel_id, status="stopped")
@@ -299,6 +363,9 @@ class FactsBackfillService:
                     # Skip if already completed
                     st = await self.get_status(guild_id, ch.id)
                     if st.get("status") == "completed":
+                        return
+                    # Respect shutdown
+                    if self._shutdown_event.is_set():
                         return
                     await self._run_channel(bot, orc, guild_id, ch.id, model=model)
 

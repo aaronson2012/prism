@@ -121,11 +121,9 @@ class EmojiIndexService:
         custom_scored: List[Tuple[float, Dict[str, Any]]] = []
         for ce in custom:
             score = _score_keywords(text_tokens, [ce.name] + _tokenize(ce.description or ""))
-            # small global bias toward custom
-            score += 0.05
-            if (style or "").lower() in {"playful", "creative"} and ce.animated:
-                score += 0.15
-            # ensure we keep a few custom options even without direct keyword match
+            # Global bias toward custom (no modes)
+            score += 0.10
+            # Ensure we keep a few custom options even without direct keyword match
             if score <= 0:
                 score = 0.01
             token = f"<{'a' if ce.animated else ''}:{ce.name}:{ce.emoji_id}>" if ce.name else f":{ce.emoji_id}:"
@@ -138,14 +136,12 @@ class EmojiIndexService:
             score = _score_keywords(text_tokens, [name] + kws)
             if score <= 0:
                 continue
-            if (style or "").lower() in {"playful", "creative"} and char in {"😄", "😃", "😅", "😉", "😊", "🤩", "🤗", "🎉", "✨"}:
-                score += 0.1
             uni_scored.append((score, {"token": char, "name": name or "Unicode emoji", "description": ""}))
         uni_scored.sort(key=lambda x: x[0], reverse=True)
 
         merged: List[Dict[str, Any]] = []
-        # First, prefer a custom-heavy mix (at least half, at least one)
-        custom_quota = max(1, min(len(custom_scored), (limit + 1) // 2))
+        # Prefer a custom-heavy mix by default (~2/3 custom when available)
+        custom_quota = max(1, min(len(custom_scored), (2 * limit + 2) // 3))
         for score, item in custom_scored[: custom_quota]:
             if all(item["token"] != m["token"] for m in merged):
                 merged.append(item)

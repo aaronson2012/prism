@@ -49,14 +49,32 @@ def _load_base_guidelines_text() -> str:
                 data = tomllib.load(f)
             content = str((data or {}).get("base_guidelines", {}).get("content") or "").strip()
             if content:
-                return content + "\n" + extra_house_rules
+                # Base guidelines already include global rules; avoid duplicating extras
+                return content
     except Exception as e:  # noqa: BLE001
         log.debug("failed to load base guidelines: %s", e)
-    # Fallback
-    return (
-        "You are Prism, a helpful, concise Discord AI assistant.\n"
-        + extra_house_rules
+    # Fallback: minimal but includes global emoji rules
+    fallback = (
+        "Core interaction principles:\n"
+        "- Be helpful, concise, and friendly.\n"
+        "- Answer directly; avoid meandering filler.\n"
+        "- Match the user's tone; keep responses single‑message unless asked to expand.\n"
+        "- Use clear, plain language; briefly define jargon when needed.\n"
+        "- State key assumptions and ask a clarifying question only when essential.\n"
+        "- Avoid tagging users with @; refer to names without pings.\n"
+        "- Respect user preferences and server norms.\n"
+        "- Do not request or store secrets; avoid speculating about private data.\n"
+        "- Stay within the conversation context; don't claim capabilities you cannot perform here.\n"
+        "- If unsure, say so briefly and propose a sensible next step.\n\n"
+        "Global emoji guidelines (conversation‑wide):\n"
+        "- Be emoji‑eager: include at least one emoji per sentence unless the user explicitly asks for no emojis.\n"
+        "- Prefer custom server emojis when available; otherwise use appropriate Unicode emojis.\n"
+        "- When using custom Discord emojis, emit their literal tokens: <:name:id> for static, <a:name:id> for animated.\n"
+        "- If the user asks for ‘no emoji’/‘without emoji’, comply and do not add any.\n"
+        "- Don’t add disclaimers about not generating images—just include the emojis inline.\n"
+        "- Keep emoji usage natural and readable; avoid overwhelming the text.\n"
     )
+    return fallback + "\n" + extra_house_rules
 
 
 def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
@@ -241,7 +259,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                 # Emoji talk: provide compact candidates and style preference
                 if cfg.emoji_talk_enabled:  # type: ignore[attr-defined]
                     try:
-                        style = (persona.data.emoji_style if persona else None) or "balanced"
+                        # No per-mode styles; use global guidelines and provide candidates
+                        style = None
                         # If user asks for emojis, allow more candidates
                         lowered = content.lower()
                         is_emoji_request = any(w in lowered for w in ["emoji", "emojis", "custom emoji", "custom emojis"])
@@ -299,22 +318,15 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                 )
                             except Exception:
                                 pass
-                            system_prompt += "\n\nEmoji style preference: " + str(style)
                             system_prompt += "\nEmoji candidates: " + " ".join(cands)
                             # Provide titles so the model knows what each token represents
                             titles = "; ".join(f"{m['token']} = {m.get('name') or 'emoji'}" for m in show)
                             if titles:
                                 system_prompt += "\nEmoji titles: " + titles
-                            # Provide clear usage rules so the model uses provided custom emojis
-                            rules = (
-                                "Emoji usage: Prefer the provided candidates; when reasonable, prefer custom server emojis over plain Unicode. For custom Discord emojis, "
-                                "emit the literal token forms like <:name:id> (static) or <a:name:id> (animated); "
-                                "they will render in Discord. Avoid disclaimers about not generating images; just include the emojis. "
-                                "Use emojis a little more than a human would to add fun — typically 1–3 inline per normal reply; "
-                                "if the user explicitly asks for emojis, include a few more (3–6); and if they ask for custom emojis, "
-                                "include some of the provided custom emoji tokens."
+                            # Brief hint: candidates are available; custom tokens render as-is in Discord
+                            system_prompt += (
+                                "\nYou may use these emoji candidates directly. For custom Discord emojis, emit the token forms '<:name:id>' or '<a:name:id>' — they will render in Discord."
                             )
-                            system_prompt += "\n" + rules
                             # Give a concrete example using server tokens to nudge correct formatting
                             try:
                                 ex_tokens = [m["token"] for m in custom_meta[:2] if m.get("token")]
@@ -344,18 +356,22 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                     chosen_model = persona.data.model or cfg.default_model if persona else cfg.default_model
                     text, _meta = await orc.chat_completion(messages, model=chosen_model)
                     reply = text.strip() if text else "(no content)"
-                    # Fallback sprinkle: if emoji-talk enabled and no custom emoji used, add one top custom candidate
+                    # Fallback sprinkle and enforcement: ensure at least one emoji per sentence when enabled
                     if cfg.emoji_talk_enabled:  # type: ignore[attr-defined]
                         no_emoji_requested = any(w in content.lower() for w in ["no emoji", "no emojis", "without emoji", "without emojis"])
-                        if not no_emoji_requested and reply and ("<:" not in reply and "<a:" not in reply):
+                        if not no_emoji_requested and reply:
                             try:
                                 custom_tokens = [m.get("token") for m in (locals().get("cmeta") or []) if str(m.get("token", "")).startswith("<")]
                             except Exception:
                                 custom_tokens = []
-                            if custom_tokens:
+                            try:
+                                unicode_tokens = [m.get("token") for m in (locals().get("cmeta") or []) if m.get("token") and not str(m.get("token")).startswith("<")]
+                            except Exception:
+                                unicode_tokens = []
+                            # If model forgot, add at least one custom emoji after the first sentence
+                            if ("<:" not in reply and "<a:" not in reply) and custom_tokens:
                                 addtok = " " + custom_tokens[0]
                                 if len(reply) + len(addtok) <= 1900:
-                                    # Insert after first sentence-ending punctuation for a natural feel
                                     import re as _re2
                                     m = _re2.search(r"([.!?])\s", reply)
                                     if m:
@@ -363,6 +379,55 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                         reply = reply[:idx] + addtok + reply[idx:]
                                     else:
                                         reply = reply + addtok
+                            # Light enforcement: ensure each sentence contains at least one emoji
+                            try:
+                                import re as _re3
+                                try:
+                                    import emoji as _emoji_lib  # type: ignore
+                                    def _has_emoji(s: str) -> bool:
+                                        try:
+                                            if hasattr(_emoji_lib, "emoji_list"):
+                                                return bool(_emoji_lib.emoji_list(s))
+                                        except Exception:
+                                            pass
+                                        return bool(_re3.search(r"<a?:[A-Za-z0-9_]+:\d+>", s))
+                                except Exception:
+                                    def _has_emoji(s: str) -> bool:  # type: ignore[no-redef]
+                                        return bool(_re3.search(r"<a?:[A-Za-z0-9_]+:\d+>", s))
+
+                                def _ensure_emoji_per_sentence(text_in: str) -> str:
+                                    # Split on sentence boundaries while keeping delimiters
+                                    parts = _re3.split(r"(\s*(?<=\.|\!|\?)\s+)", text_in)
+                                    if not parts or len(parts) == 1:
+                                        return text_in
+                                    out_parts = []
+                                    idx_ctok = 0
+                                    idx_utok = 0
+                                    for i, seg in enumerate(parts):
+                                        if i % 2 == 0:  # sentence chunk
+                                            s = seg
+                                            if s.strip() and not _has_emoji(s):
+                                                tok = None
+                                                if custom_tokens:
+                                                    tok = custom_tokens[idx_ctok % len(custom_tokens)]
+                                                    idx_ctok += 1
+                                                elif unicode_tokens:
+                                                    tok = unicode_tokens[idx_utok % len(unicode_tokens)]
+                                                    idx_utok += 1
+                                                if tok:
+                                                    # Append before trailing whitespace
+                                                    s = s.rstrip() + " " + tok + ("" if s.endswith(" ") else "")
+                                            out_parts.append(s)
+                                        else:
+                                            out_parts.append(seg)
+                                    candidate = "".join(out_parts)
+                                    return candidate if len(candidate) <= 1900 else text_in
+
+                                reply2 = _ensure_emoji_per_sentence(reply)
+                                if reply2 != reply:
+                                    reply = reply2
+                            except Exception:
+                                pass
                     await message.reply(reply, mention_author=False)
                     # Persist assistant reply to memory
                     await bot.prism_memory.add(MemMessage(
@@ -470,6 +535,30 @@ async def amain() -> None:
     setup_memory(bot)
     setup_facts(bot)
 
+    # Install signal handlers for graceful shutdown (including SIGTERM)
+    try:
+        import signal
+        loop = asyncio.get_running_loop()
+        def _graceful_signal(sig_name: str) -> None:
+            try:
+                log.info("Received %s, requesting graceful shutdown...", sig_name)
+                # Ask backfill to stop and close the bot; schedule both
+                try:
+                    loop.create_task(bot.prism_backfill.request_stop_all())  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                loop.create_task(bot.close())
+            except Exception:
+                pass
+        for _sig, _name in ((signal.SIGINT, "SIGINT"), (signal.SIGTERM, "SIGTERM")):
+            try:
+                loop.add_signal_handler(_sig, _graceful_signal, _name)
+            except Exception:
+                # Not available on some platforms (e.g., Windows)
+                pass
+    except Exception:
+        pass
+
     try:
         log.info("Logging in to Discord...")
         await bot.start(cfg.discord_token)
@@ -489,6 +578,11 @@ async def amain() -> None:
         log.exception("Bot failed to start: %s", e)
         raise
     finally:
+        # Request backfill stop to persist progress before closing resources
+        try:
+            await bot.prism_backfill.request_stop_all()  # type: ignore[attr-defined]
+        except Exception:
+            pass
         # Close external resources regardless of exit path
         try:
             await orc.aclose()
