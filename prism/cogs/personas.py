@@ -84,13 +84,14 @@ class PersonaCog(discord.Cog):
         await ctx.respond(f"Persona set to '{friendly}' for this guild.")
 
     @persona.command(name="create", description="Create a new persona (AI-assisted)")
-    @option("name", str, description="Name (optional)", required=False, default=None)
+    # Discord requires required options to be listed before optional ones
     @option("outline", str, description="Describe the personality in a few words/sentences", required=True)
+    @option("name", str, description="Name (optional)", required=False, default=None)
     async def persona_create(
         self,
         ctx: discord.ApplicationContext,  # type: ignore[override]
-        name: str | None,
         outline: str,
+        name: str | None = None,
     ):
         await ctx.defer(ephemeral=False)
         # Ask the LLM via service and persist to filesystem
