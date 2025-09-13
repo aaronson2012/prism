@@ -95,14 +95,49 @@ class _Tee:
             return False
 
 
+def _pick_logs_dir() -> str:
+    env_dir = os.getenv("PRISM_LOG_DIR")
+    candidates = []
+    if env_dir:
+        candidates.append(env_dir)
+    xdg_state = os.getenv("XDG_STATE_HOME")
+    home = os.path.expanduser("~")
+    if xdg_state:
+        candidates.append(os.path.join(xdg_state, "prism", "logs"))
+    elif home:
+        candidates.append(os.path.join(home, ".local", "state", "prism", "logs"))
+    if home:
+        candidates.append(os.path.join(home, ".cache", "prism", "logs"))
+        candidates.append(os.path.join(home, "prism", "logs"))
+    try:
+        uid = os.getuid()  # type: ignore[attr-defined]
+    except Exception:
+        uid = os.getpid()
+    candidates.append(os.path.join("/tmp", f"prism-{uid}", "logs"))
+    # Last resort: CWD/logs
+    candidates.append(os.path.join(os.getcwd(), "logs"))
+    for d in candidates:
+        try:
+            os.makedirs(d, exist_ok=True)
+            # quick write test
+            p = os.path.join(d, ".write-test")
+            with open(p, "a", encoding="utf-8") as f:
+                f.write("")
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+            return d
+        except Exception:
+            continue
+    # As a final fallback, use /tmp
+    return "/tmp"
+
+
 def setup_logging(level: str = "INFO") -> None:
     global _tee_installed, _console_logs_dir, _console_retention_days, _orig_excepthook
 
-    logs_dir = os.path.join(os.getcwd(), os.getenv("PRISM_LOG_DIR", "logs"))
-    try:
-        os.makedirs(logs_dir, exist_ok=True)
-    except Exception:
-        pass
+    logs_dir = _pick_logs_dir()
 
     # Configure console tee directory and retention
     _console_logs_dir = logs_dir
