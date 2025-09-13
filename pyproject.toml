@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prism-bot"
+version = "0.1.0"
+description = "Prism — Discord AI bot with persona switching, user learning, and emoji intelligence."
+authors = [{ name = "Prism" }]
+requires-python = ">=3.11"
+dependencies = [
+  "py-cord==2.6.1",
+  "httpx",
+  "tenacity",
+  "python-dotenv",
+  "aiosqlite",
+  "pydantic>=2",
+  "emoji",
+  "cachetools",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "ruff",
+]
+
+[project.scripts]
+prism = "prism.main:main"
+
+[tool.setuptools.packages.find]
+include = ["prism*"]
