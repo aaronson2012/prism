@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import List
+from typing import List, Tuple
 import os
 
 from .config import load_config
@@ -18,6 +18,47 @@ from .services.rate_limit import RateLimiter, RateLimitConfig
 
 
 log = logging.getLogger(__name__)
+
+
+DISCORD_MESSAGE_LIMIT = 2000
+_TRUNCATION_NOTICE = "\n(Reply truncated to fit Discord's 2000 character limit.)"
+
+
+def _clip_reply_to_limit(text: str) -> Tuple[str, bool]:
+    """Ensure replies respect Discord's 2000-character limit with a friendly notice."""
+    if len(text) <= DISCORD_MESSAGE_LIMIT:
+        return text, False
+
+    suffix = _TRUNCATION_NOTICE
+    limit = max(0, DISCORD_MESSAGE_LIMIT - len(suffix))
+    truncated = text[:limit].rstrip()
+
+    # Avoid leaving partial custom emoji tokens hanging at the end.
+    partial_idx = truncated.rfind("<")
+    if partial_idx != -1 and ">" not in truncated[partial_idx:]:
+        truncated = truncated[:partial_idx].rstrip()
+
+    # Close unfinished fenced code blocks if possible without exceeding the limit.
+    if truncated.count("```") % 2 == 1:
+        closing = "\n```"
+        if len(truncated) + len(closing) <= limit:
+            truncated += closing
+        else:
+            last_tick = truncated.rfind("```")
+            if last_tick != -1:
+                truncated = truncated[:last_tick].rstrip()
+
+    result = truncated
+    if not result:
+        # Degenerate case: the suffix must fit alone.
+        return suffix[-DISCORD_MESSAGE_LIMIT:], True
+
+    # Ensure the final message stays within the hard cap after adjustments.
+    while len(result) + len(suffix) > DISCORD_MESSAGE_LIMIT and result:
+        result = result[:-1]
+    result = result.rstrip()
+
+    return result + suffix, True
 
 
 def build_bot(cfg):
@@ -480,6 +521,18 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                     pass
                             except Exception:
                                 pass
+                    original_length = len(reply)
+                    reply, was_truncated = _clip_reply_to_limit(reply)
+                    if was_truncated:
+                        log.warning(
+                            "Reply truncated for Discord limit (guild=%s channel=%s msg=%s len=%d->%d)",
+                            getattr(message.guild, "id", "?"),
+                            getattr(message.channel, "id", "?"),
+                            getattr(message, "id", "?"),
+                            original_length,
+                            len(reply),
+                        )
+
                     await message.reply(reply, mention_author=False)
                     # Persist assistant reply to memory
                     await bot.prism_memory.add(MemMessage(
@@ -614,6 +667,11 @@ async def amain() -> None:
         raise
     finally:
         # Close external resources regardless of exit path
+        try:
+            if not bot.is_closed():
+                await bot.close()
+        except Exception:  # noqa: BLE001
+            pass
         try:
             await orc.aclose()
         finally:
