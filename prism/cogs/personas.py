@@ -71,6 +71,10 @@ class PersonaCog(discord.Cog):
         if not ctx.guild:
             await ctx.respond("This command must be used in a guild.")
             return
+
+        # Reload personas so we have the latest set persona in cache.
+        await self.bot.prism_personas.load_builtins()
+        
         rec = await self.bot.prism_personas.get(name)
         if not rec:
             await ctx.respond(f"Persona '{name}' not found.")
