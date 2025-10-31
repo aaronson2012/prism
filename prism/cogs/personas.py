@@ -98,10 +98,24 @@ class PersonaCog(discord.Cog):
         name: str | None = None,
     ):
         await ctx.defer(ephemeral=False)
+        # Validate input
+        if not outline or not outline.strip():
+            await ctx.respond("Outline cannot be empty.")
+            return
+        if len(outline) > 2000:
+            await ctx.respond("Outline is too long (max 2000 characters).")
+            return
+        if name and len(name) > 100:
+            await ctx.respond("Persona name is too long (max 100 characters).")
+            return
         # Ask the LLM via service and persist to filesystem
         try:
             created_name = await self.bot.prism_personas.ai_draft_and_create(self.bot.prism_orc, name, outline)  # type: ignore[attr-defined]
+        except ValueError as e:
+            await ctx.respond(f"Failed to create persona: {e}")
+            return
         except Exception as e:  # noqa: BLE001
+            log.exception("Unexpected error creating persona")
             await ctx.respond(f"Failed to create persona: {e}")
             return
         # Present friendly name
@@ -130,6 +144,25 @@ class PersonaCog(discord.Cog):
         style: str | None = None,
     ):
         await ctx.defer(ephemeral=False)
+        # Validate input
+        if display_name and len(display_name) > 200:
+            await ctx.respond("Display name is too long (max 200 characters).")
+            return
+        if system_prompt and len(system_prompt) > 10000:
+            await ctx.respond("System prompt is too long (max 10000 characters).")
+            return
+        if description and len(description) > 500:
+            await ctx.respond("Description is too long (max 500 characters).")
+            return
+        if model and len(model) > 200:
+            await ctx.respond("Model name is too long (max 200 characters).")
+            return
+        if temperature is not None and (temperature < 0 or temperature > 2):
+            await ctx.respond("Temperature must be between 0 and 2.")
+            return
+        if style and len(style) > 100:
+            await ctx.respond("Style tag is too long (max 100 characters).")
+            return
         try:
             updates = {
                 "display_name": display_name,
@@ -144,7 +177,11 @@ class PersonaCog(discord.Cog):
                 await ctx.respond("No changes provided.")
                 return
             await self.bot.prism_personas.update(name, updates)
+        except ValueError as e:
+            await ctx.respond(f"Failed to edit persona: {e}")
+            return
         except Exception as e:  # noqa: BLE001
+            log.exception("Unexpected error editing persona")
             await ctx.respond(f"Failed to edit persona: {e}")
             return
         friendly = (await self.bot.prism_personas.get(name)).data.display_name if await self.bot.prism_personas.get(name) else None  # type: ignore[attr-defined]

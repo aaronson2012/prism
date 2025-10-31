@@ -17,7 +17,7 @@ class MemoryCog(discord.Cog):
     memory = SlashCommandGroup("memory", "Short-term memory commands")
 
     @memory.command(name="view", description="View recent short-term memory for this channel")
-    @option("limit", int, description="Max messages to show", required=False, default=10, min_value=1)
+    @option("limit", int, description="Max messages to show", required=False, default=10, min_value=1, max_value=100)
     async def memory_view(self, ctx: discord.ApplicationContext, limit: int = 10):  # type: ignore[override]
         if not ctx.guild:
             await ctx.respond("This command must be used in a guild.")

@@ -42,10 +42,21 @@ class Database:
     async def execute(self, sql: str, params: Iterable[Any] = ()) -> None:
         # Execute a statement and commit unless we're inside an explicit transaction.
         await self.conn.execute(sql, tuple(params))
+        # Check if we're in a transaction using aiosqlite's proper method
+        # If in_transaction attribute doesn't exist or we're not in a transaction, commit
         try:
-            in_tx = getattr(self.conn, "in_transaction", False)
-        except Exception:
-            in_tx = False
+            # aiosqlite provides in_transaction attribute, but it may not be available in all versions
+            in_tx = self.conn.in_transaction  # type: ignore[attr-defined]
+        except AttributeError:
+            # Fallback: check autocommit mode (if autocommit is False, we're in a transaction)
+            try:
+                # In newer aiosqlite, we can check autocommit
+                in_tx = not getattr(self.conn, '_autocommit', True)
+            except Exception:
+                # If we can't determine, assume we're not in a transaction and commit
+                # SQLite handles this gracefully - commits are idempotent when not in a transaction
+                in_tx = False
+        
         if not in_tx:
             await self.conn.commit()
 

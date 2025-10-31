@@ -72,11 +72,15 @@ class OpenRouterClient:
         try:
             text, meta = await self._chat_completion_once(messages, chosen_model, temperature, max_tokens)
             return text, meta
-        except Exception as e:
+        except (OpenRouterError, httpx.HTTPError, httpx.TimeoutException, httpx.TransportError) as e:
             log.warning("OpenRouter primary model failed (%s): %s; trying fallback %s", chosen_model, e, self.cfg.fallback_model)
             # Attempt fallback once without re-raising via retry decorator.
-            text, meta = await self._chat_completion_once(messages, self.cfg.fallback_model, temperature, max_tokens)
-            return text, meta
+            try:
+                text, meta = await self._chat_completion_once(messages, self.cfg.fallback_model, temperature, max_tokens)
+                return text, meta
+            except (OpenRouterError, httpx.HTTPError, httpx.TimeoutException, httpx.TransportError) as fallback_error:
+                log.error("OpenRouter fallback model also failed (%s): %s", self.cfg.fallback_model, fallback_error)
+                raise OpenRouterError(f"Both primary ({chosen_model}) and fallback ({self.cfg.fallback_model}) models failed. Last error: {fallback_error}") from fallback_error
 
     async def _chat_completion_once(
         self,
@@ -96,15 +100,23 @@ class OpenRouterClient:
 
         resp = await self._client.post("/chat/completions", content=json.dumps(payload))
         request_id = resp.headers.get("x-request-id")
+        data: Dict[str, Any] | None = None
         try:
             data = resp.json()
         except json.JSONDecodeError:
-            log.error("OpenRouter returned non-JSON response, status=%s id=%s", resp.status_code, request_id)
+            # Read response text for error details before raising
+            try:
+                response_text = resp.text[:500]  # Limit length for logging
+                log.error("OpenRouter returned non-JSON response, status=%s id=%s body=%s", resp.status_code, request_id, response_text)
+            except Exception:
+                log.error("OpenRouter returned non-JSON response, status=%s id=%s (could not read body)", resp.status_code, request_id)
             resp.raise_for_status()
-            raise OpenRouterError("Invalid JSON from OpenRouter")
+            raise OpenRouterError(f"Invalid JSON from OpenRouter (status={resp.status_code})")
 
         if resp.status_code >= 400:
             # Provide meaningful error details.
+            if data is None:
+                raise OpenRouterError(f"OpenRouter error {resp.status_code}: No response data")
             message = data.get("error", {}).get("message") or data.get("message") or str(data)[:200]
             raise OpenRouterError(f"OpenRouter error {resp.status_code}: {message}")
 

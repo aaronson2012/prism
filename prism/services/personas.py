@@ -112,6 +112,8 @@ class PersonasService:
             raise ValueError(f"Persona '{model.name}' already exists")
         os.makedirs(self.defaults_dir, exist_ok=True)
         path = os.path.join(self.defaults_dir, f"{self._slug(model.name)}.toml")
+        # Validate path safety to prevent directory traversal
+        self._validate_path_safe(path)
         self._write_toml_persona(path, model)
         await self.load_builtins()
 
@@ -126,6 +128,8 @@ class PersonasService:
         model = PersonaModel(**data)
         # Update in-place when possible; if path missing, write to personas dir
         dest_path = rec.path or os.path.join(self.defaults_dir, f"{self._slug(rec.data.name)}.toml")
+        # Validate path safety to prevent directory traversal
+        self._validate_path_safe(dest_path)
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         self._write_toml_persona(dest_path, model)
         await self.load_builtins()
@@ -136,14 +140,20 @@ class PersonasService:
             raise ValueError(f"Persona '{name}' not found")
         try:
             if rec.path and os.path.isfile(rec.path):
+                # Validate path safety even for existing paths
+                self._validate_path_safe(rec.path)
                 os.remove(rec.path)
             else:
                 # Attempt to remove a persona file by kebab name
                 path = os.path.join(self.defaults_dir, f"{self._slug(name)}.toml")
+                # Validate path safety to prevent directory traversal
+                self._validate_path_safe(path)
                 if os.path.isfile(path):
                     os.remove(path)
-        except Exception as e:  # noqa: BLE001
-            raise ValueError(f"Failed to delete persona file: {e}")
+        except (OSError, ValueError) as e:
+            # OSError covers file not found, permission errors, etc.
+            # ValueError covers path validation errors
+            raise ValueError(f"Failed to delete persona file: {e}") from e
         await self.load_builtins()
 
     # ---------------------- Helpers ----------------------
@@ -152,6 +162,34 @@ class PersonasService:
         s = re.sub(r"[^a-zA-Z0-9_-]+", "-", name.strip())
         s = re.sub(r"-+", "-", s).strip("-")
         return s.lower() or "persona"
+
+    def _validate_path_safe(self, path: str) -> None:
+        """Validate that a file path is safe and within the defaults directory."""
+        # Resolve absolute paths
+        abs_path = os.path.abspath(path)
+        abs_defaults_dir = os.path.abspath(self.defaults_dir)
+        
+        # Ensure the path is within defaults_dir
+        try:
+            # Use os.path.commonpath to check if path is within defaults_dir
+            common_path = os.path.commonpath([abs_path, abs_defaults_dir])
+            if common_path != abs_defaults_dir:
+                raise ValueError(f"Path traversal detected: {path}")
+        except ValueError as e:
+            # If commonpath raises ValueError, paths are on different drives (Windows)
+            # or there's an issue - reject for safety
+            if "path traversal" in str(e).lower():
+                raise
+            raise ValueError(f"Invalid path: {path}") from e
+        
+        # Additional check: ensure no path separators in filename
+        if os.path.sep in os.path.basename(path) or (os.path.altsep and os.path.altsep in os.path.basename(path)):
+            raise ValueError(f"Invalid filename: {os.path.basename(path)}")
+        
+        # Ensure filename doesn't start with . or contain dangerous sequences
+        basename = os.path.basename(path)
+        if basename.startswith('.') or basename.startswith('..'):
+            raise ValueError(f"Invalid filename: {basename}")
 
     @staticmethod
     def _title_from_slug(slug: str) -> str:
@@ -162,7 +200,27 @@ class PersonasService:
         # Minimal TOML writer that our loader can read back. We store the system prompt
         # under a [system_prompt] table with a single 'content' field.
         def esc(s: str) -> str:
-            return s.replace("\\", "\\\\").replace("\"", "\\\"")
+            """Escape special characters for TOML double-quoted strings."""
+            # Must escape backslash first, then other escapes
+            result = s.replace("\\", "\\\\")
+            result = result.replace("\"", "\\\"")
+            result = result.replace("\n", "\\n")
+            result = result.replace("\r", "\\r")
+            result = result.replace("\t", "\\t")
+            # Escape control characters (0x00-0x1F) except common ones already handled
+            result = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', lambda m: f"\\u{ord(m.group(0)):04x}", result)
+            return result
+        
+        def esc_triple_quoted(s: str) -> str:
+            """Escape content for TOML triple-quoted strings."""
+            # Triple-quoted strings need to escape triple quotes
+            # Also escape backslashes at end of lines to avoid interpretation issues
+            result = s.replace("\\", "\\\\")
+            # Escape triple quotes by inserting a newline or using escaping
+            # TOML spec: if triple quote appears in triple-quoted string, escape at least one quote
+            result = result.replace("\"\"\"", "\"\"\\\"")
+            return result
+        
         body = []
         body.append(f"name = \"{esc(model.name)}\"")
         if (model.display_name or "").strip():
@@ -177,15 +235,17 @@ class PersonasService:
         body.append("")
         body.append("[system_prompt]")
         body.append("content = \"\"\"")
-        # Preserve newlines; close with triple quotes
-        body.append((model.system_prompt or "").replace("\r\n", "\n"))
+        # Preserve newlines in triple-quoted string, but escape triple quotes
+        body.append(esc_triple_quoted((model.system_prompt or "").replace("\r\n", "\n")))
         body.append("\"\"\"")
         txt = "\n".join(body) + "\n"
         try:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(txt)
-        except Exception as e:  # noqa: BLE001
-            raise ValueError(f"Failed to write persona file: {e}")
+        except (OSError, IOError) as e:
+            # OSError covers permission errors, disk full, etc.
+            # IOError is for Python < 3.3 compatibility (aliased to OSError in 3.3+)
+            raise ValueError(f"Failed to write persona file: {e}") from e
 
     async def ai_draft_and_create(self, orc, name: Optional[str], outline: str) -> str:
         """Draft a persona with the LLM and create it on disk.
