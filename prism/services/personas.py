@@ -62,7 +62,8 @@ class PersonasService:
                 # Use stdlib tomllib on Python 3.11+
                 try:
                     import tomllib  # type: ignore
-                except Exception:  # pragma: no cover - very unlikely on 3.11
+                except ImportError:  # pragma: no cover - very unlikely on 3.11
+                    log.warning("tomllib not available, skipping TOML personas")
                     tomllib = None  # type: ignore
                 if not tomllib:
                     continue
@@ -245,6 +246,7 @@ class PersonasService:
         except (OSError, IOError) as e:
             # OSError covers permission errors, disk full, etc.
             # IOError is for Python < 3.3 compatibility (aliased to OSError in 3.3+)
+            log.error("Failed to write persona file %s: %s", path, e)
             raise ValueError(f"Failed to write persona file: {e}") from e
 
     async def ai_draft_and_create(self, orc, name: Optional[str], outline: str) -> str:

@@ -15,6 +15,8 @@ from .services.memory import MemoryService, Message as MemMessage
 from .services.emoji_index import EmojiIndexService
 from .services.reaction_engine import ReactionEngine, ReactionEngineConfig
 from .services.rate_limit import RateLimiter, RateLimitConfig
+from .services.emoji_enforcer import fallback_add_custom_emoji, enforce_emoji_distribution
+from .services.channel_locks import ChannelLockManager
 
 
 log = logging.getLogger(__name__)
@@ -123,10 +125,34 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
     # Lazy import of discord for decorator objects
     import discord  # type: ignore
 
+    async def _periodic_message_pruning():
+        """Background task to prune old messages from database."""
+        await bot.wait_until_ready()
+        while not bot.is_closed():
+            try:
+                # Wait 24 hours between pruning runs
+                await asyncio.sleep(86400)
+                
+                # Prune messages older than 30 days
+                deleted = await bot.prism_memory.prune_old_messages(days=30)  # type: ignore[attr-defined]
+                if deleted > 0:
+                    log.info("Pruned %d old messages from database", deleted)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.warning("Message pruning failed: %s", e, exc_info=True)
+
     @bot.event
     async def on_ready():
         log.info("Logged in as %s (%s)", bot.user, bot.user and bot.user.id)
         log.info("Message content intent: %s", getattr(bot.intents, "message_content", False))
+        
+        # Start periodic message pruning task
+        try:
+            bot.loop.create_task(_periodic_message_pruning())
+            log.info("Started periodic message pruning task")
+        except Exception as e:
+            log.warning("Failed to start message pruning task: %s", e)
         # Log guilds joined and configured command guilds
         try:
             gids = getattr(bot.prism_cfg, "command_guild_ids", None)  # type: ignore[attr-defined]
@@ -279,8 +305,7 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
 
         # Resolve persona and build messages with channel history
         # Use per-channel lock to avoid interleaved generations
-        chan_key = str(message.channel.id)
-        lock = bot.prism_channel_locks.setdefault(chan_key, asyncio.Lock())  # type: ignore[attr-defined]
+        lock = bot.prism_channel_locks.get_lock(message.channel.id)  # type: ignore[attr-defined]
         async with lock:
             async def _generate_and_reply() -> None:
                 persona_name = await bot.prism_settings.resolve_persona_name(message.guild.id, message.channel.id, message.author.id)
@@ -389,7 +414,7 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                     chosen_model = persona.data.model or cfg.default_model if persona else cfg.default_model
                     text, _meta = await orc.chat_completion(messages, model=chosen_model)
                     reply = text.strip() if text else "(no content)"
-                    # Fallback sprinkle and enforcement: ensure at least one emoji per sentence when enabled,
+                    # Emoji enforcement: ensure at least one emoji per sentence when enabled,
                     # spread them out, and avoid duplicate emoji tokens in a single message.
                     if cfg.emoji_talk_enabled:  # type: ignore[attr-defined]
                         no_emoji_requested = any(w in content.lower() for w in ["no emoji", "no emojis", "without emoji", "without emojis"])
@@ -402,125 +427,13 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                 unicode_tokens = [m.get("token") for m in (locals().get("cmeta") or []) if m.get("token") and not str(m.get("token")).startswith("<")]
                             except Exception:
                                 unicode_tokens = []
-                            # If model forgot, add at least one custom emoji after the first sentence
-                            if ("<:" not in reply and "<a:" not in reply) and custom_tokens:
-                                addtok = " " + custom_tokens[0]
-                                if len(reply) + len(addtok) <= 1900:
-                                    import re as _re2
-                                    m = _re2.search(r"([.!?])\s", reply)
-                                    if m:
-                                        idx = m.end()
-                                        reply = reply[:idx] + addtok + reply[idx:]
-                                    else:
-                                        reply = reply + addtok
-                            # Light enforcement: ensure each sentence contains at least one emoji
-                            try:
-                                import re as _re3
-                                try:
-                                    import emoji as _emoji_lib  # type: ignore
-                                    def _has_emoji(s: str) -> bool:
-                                        try:
-                                            if hasattr(_emoji_lib, "emoji_list"):
-                                                return bool(_emoji_lib.emoji_list(s))
-                                        except Exception:
-                                            pass
-                                        return bool(_re3.search(r"<a?:[A-Za-z0-9_]+:\d+>", s))
-                                except Exception:
-                                    def _has_emoji(s: str) -> bool:  # type: ignore[no-redef]
-                                        return bool(_re3.search(r"<a?:[A-Za-z0-9_]+:\d+>", s))
-
-                                def _ensure_emoji_per_sentence(text_in: str) -> str:
-                                    # Split on sentence boundaries while keeping delimiters
-                                    parts = _re3.split(r"(\s*(?<=\.|\!|\?)\s+)", text_in)
-                                    if not parts or len(parts) == 1:
-                                        return text_in
-                                    out_parts = []
-                                    idx_ctok = 0
-                                    idx_utok = 0
-                                    for i, seg in enumerate(parts):
-                                        if i % 2 == 0:  # sentence chunk
-                                            s = seg
-                                            if s.strip() and not _has_emoji(s):
-                                                tok = None
-                                                if custom_tokens:
-                                                    tok = custom_tokens[idx_ctok % len(custom_tokens)]
-                                                    idx_ctok += 1
-                                                elif unicode_tokens:
-                                                    tok = unicode_tokens[idx_utok % len(unicode_tokens)]
-                                                    idx_utok += 1
-                                                if tok:
-                                                    # Append before trailing whitespace
-                                                    s = s.rstrip() + " " + tok + ("" if s.endswith(" ") else "")
-                                            out_parts.append(s)
-                                        else:
-                                            out_parts.append(seg)
-                                    candidate = "".join(out_parts)
-                                    return candidate if len(candidate) <= 1900 else text_in
-
-                                reply2 = _ensure_emoji_per_sentence(reply)
-                                if reply2 != reply:
-                                    reply = reply2
-                                # Post-process: de-duplicate repeated emojis and un-clump adjacent ones
-                                try:
-                                    # Remove duplicate custom emoji tokens beyond first occurrence
-                                    used_custom: set[str] = set()
-                                    def _dedupe_custom(match):
-                                        tok = match.group(0)
-                                        if tok in used_custom:
-                                            return ""  # drop duplicates
-                                        used_custom.add(tok)
-                                        return tok
-                                    reply = _re3.sub(r"<a?:[A-Za-z0-9_]+:\d+>", _dedupe_custom, reply)
-                                    # Optionally dedupe unicode emojis if library available
-                                    try:
-                                        if hasattr(_emoji_lib, "emoji_list"):
-                                            seen_uni: set[str] = set()
-                                            chars = list(reply)
-                                            i = 0
-                                            while i < len(chars):
-                                                ch = chars[i]
-                                                try:
-                                                    if _emoji_lib.is_emoji(ch):
-                                                        if ch in seen_uni:
-                                                            del chars[i]
-                                                            continue
-                                                        seen_uni.add(ch)
-                                                except Exception:
-                                                    pass
-                                                i += 1
-                                            reply = "".join(chars)
-                                    except Exception:
-                                        pass
-                                    # De-clump custom tokens: collapse runs like '<:a:1> <:b:2>' into a single token
-                                    try:
-                                        _cluster_re = _re3.compile(r"(<a?:[A-Za-z0-9_]+:\d+>)(?:\s*<a?:[A-Za-z0-9_]+:\d+>)+")
-                                        prev = None
-                                        while prev != reply:
-                                            prev = reply
-                                            reply = _cluster_re.sub(lambda m: m.group(1), reply)
-                                    except Exception:
-                                        pass
-                                    # De-clump unicode emojis when library available: drop consecutive emoji characters
-                                    try:
-                                        if hasattr(_emoji_lib, "is_emoji"):
-                                            out_chars = []
-                                            prev_was_emoji = False
-                                            for ch in reply:
-                                                try:
-                                                    is_e = _emoji_lib.is_emoji(ch)
-                                                except Exception:
-                                                    is_e = False
-                                                if is_e and prev_was_emoji:
-                                                    continue
-                                                out_chars.append(ch)
-                                                prev_was_emoji = is_e
-                                            reply = "".join(out_chars)
-                                    except Exception:
-                                        pass
-                                except Exception:
-                                    pass
-                            except Exception:
-                                pass
+                            
+                            # If model forgot custom emojis, add at least one
+                            if custom_tokens and ("<:" not in reply and "<a:" not in reply):
+                                reply = fallback_add_custom_emoji(reply, custom_tokens)
+                            
+                            # Apply full emoji enforcement pipeline
+                            reply = enforce_emoji_distribution(reply, custom_tokens, unicode_tokens)
                     original_length = len(reply)
                     reply, was_truncated = _clip_reply_to_limit(reply)
                     if was_truncated:
@@ -616,8 +529,8 @@ async def amain() -> None:
         rate_limiter=RateLimiter(RateLimitConfig()),
         cfg=ReactionEngineConfig(),
     )
-    # Per-channel locks to avoid interleaved generations
-    bot.prism_channel_locks = {}  # type: ignore[attr-defined]
+    # Per-channel locks to avoid interleaved generations (with automatic cleanup)
+    bot.prism_channel_locks = ChannelLockManager(cleanup_threshold_sec=3600.0)  # type: ignore[attr-defined]
 
     register_commands(bot, orc, cfg)
     # Load cogs

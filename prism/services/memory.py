@@ -67,3 +67,28 @@ class MemoryService:
             "DELETE FROM messages WHERE guild_id = ? AND channel_id = ?",
             (str(guild_id), str(channel_id)),
         )
+    
+    async def prune_old_messages(self, days: int = 30) -> int:
+        """Delete messages older than the specified number of days.
+        
+        Args:
+            days: Delete messages older than this many days. Default is 30.
+            
+        Returns:
+            Number of messages deleted
+        """
+        # Get count before deletion
+        count_before = await self.db.fetchone("SELECT COUNT(*) FROM messages")
+        before = int(count_before[0]) if count_before else 0
+        
+        # Delete old messages
+        await self.db.execute(
+            "DELETE FROM messages WHERE ts < datetime('now', ? || ' days')",
+            (f"-{days}",),
+        )
+        
+        # Get count after deletion
+        count_after = await self.db.fetchone("SELECT COUNT(*) FROM messages")
+        after = int(count_after[0]) if count_after else 0
+        
+        return before - after
