@@ -300,7 +300,8 @@ def _score_keywords(query_tokens: List[str], target_tokens: List[str]) -> float:
     if not query_tokens or not target_tokens:
         return 0.0
     qt = set(query_tokens)
-    tt = set([t.lower() for t in target_tokens if t])
+    # Pre-compute lowercased target tokens once instead of in set comprehension
+    tt = set(t.lower() for t in target_tokens if t)
     inter = qt.intersection(tt)
     if not inter:
         # fuzzy partial: substr match
