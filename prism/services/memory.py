@@ -77,19 +77,28 @@ class MemoryService:
         Returns:
             Number of messages deleted
         """
-        # Count messages to be deleted in a single efficient query
-        # This is faster than counting before/after deletion
-        count_row = await self.db.fetchone(
-            "SELECT COUNT(*) FROM messages WHERE ts < datetime('now', ? || ' days')",
+        # Calculate cutoff time once to ensure consistency between COUNT and DELETE
+        cutoff_row = await self.db.fetchone(
+            "SELECT datetime('now', ? || ' days')",
             (f"-{days}",)
+        )
+        if not cutoff_row or not cutoff_row[0]:
+            return 0
+        
+        cutoff_time = cutoff_row[0]
+        
+        # Count messages to be deleted using the same cutoff time
+        count_row = await self.db.fetchone(
+            "SELECT COUNT(*) FROM messages WHERE ts < ?",
+            (cutoff_time,)
         )
         count_to_delete = int(count_row[0]) if count_row else 0
         
         if count_to_delete > 0:
-            # Delete old messages
+            # Delete old messages using the same cutoff time
             await self.db.execute(
-                "DELETE FROM messages WHERE ts < datetime('now', ? || ' days')",
-                (f"-{days}",),
+                "DELETE FROM messages WHERE ts < ?",
+                (cutoff_time,),
             )
         
         return count_to_delete

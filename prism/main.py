@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 
 DISCORD_MESSAGE_LIMIT = 2000
 _TRUNCATION_NOTICE = "\n(Reply truncated to fit Discord's 2000 character limit.)"
+_CUSTOM_EMOJI_PATTERN = re.compile(r"<a?:[^:>]+:\d+>")
 
 
 def _clip_reply_to_limit(text: str) -> Tuple[str, bool]:
@@ -344,11 +345,10 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                     "SELECT content FROM messages WHERE guild_id = ? AND channel_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 30",
                                     (str(message.guild.id), str(message.channel.id)),
                                 )
-                                # Compile regex pattern once for efficiency
-                                _tok_re = re.compile(r"<a?:[^:>]+:\d+>")
+                                # Use module-level compiled regex pattern for efficiency
                                 for r in rows:
                                     content_row = str(r[0] or "")
-                                    for m in _tok_re.findall(content_row):
+                                    for m in _CUSTOM_EMOJI_PATTERN.findall(content_row):
                                         recent_custom.add(m)
                             except Exception as _e:
                                 log.debug("recent custom tokens scan failed: %s", _e)
