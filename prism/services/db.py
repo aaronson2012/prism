@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
 import aiosqlite
+
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,6 +38,15 @@ class Database:
         with open(schema_path, "r", encoding="utf-8") as f:
             await conn.executescript(f.read())
         await conn.commit()
+        
+        # Initialize migrations system
+        try:
+            from ..storage.migrations import init_schema_version, apply_migrations
+            await init_schema_version(conn)
+            await apply_migrations(conn)
+        except Exception as e:
+            log.warning("Migration system initialization failed: %s", e)
+        
         return cls(path=path, conn=conn)
 
     async def close(self) -> None:
@@ -42,23 +55,9 @@ class Database:
     async def execute(self, sql: str, params: Iterable[Any] = ()) -> None:
         # Execute a statement and commit unless we're inside an explicit transaction.
         await self.conn.execute(sql, tuple(params))
-        # Check if we're in a transaction using aiosqlite's proper method
-        # If in_transaction attribute doesn't exist or we're not in a transaction, commit
-        try:
-            # aiosqlite provides in_transaction attribute, but it may not be available in all versions
-            in_tx = self.conn.in_transaction  # type: ignore[attr-defined]
-        except AttributeError:
-            # Fallback: check autocommit mode (if autocommit is False, we're in a transaction)
-            try:
-                # In newer aiosqlite, we can check autocommit
-                in_tx = not getattr(self.conn, '_autocommit', True)
-            except Exception:
-                # If we can't determine, assume we're not in a transaction and commit
-                # SQLite handles this gracefully - commits are idempotent when not in a transaction
-                in_tx = False
-        
-        if not in_tx:
-            await self.conn.commit()
+        # Simple approach: always auto-commit for individual operations
+        # If explicit transactions are needed in the future, use begin/commit/rollback explicitly
+        await self.conn.commit()
 
     async def fetchone(self, sql: str, params: Iterable[Any] = ()) -> Optional[aiosqlite.Row]:
         async with self.conn.execute(sql, tuple(params)) as cur:
