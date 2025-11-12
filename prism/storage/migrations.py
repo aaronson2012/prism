@@ -16,9 +16,30 @@ Migration = Callable[[aiosqlite.Connection], Awaitable[None]]
 
 # Define migrations in order (v1, v2, v3, ...)
 # v1 is the initial schema from schema.sql
+
+
+async def _migration_v1_placeholder(conn: aiosqlite.Connection) -> None:
+    """Placeholder for v1 - initial schema is applied from schema.sql."""
+    # Nothing to do - initial schema already applied
+    pass
+
+
+async def _migration_v2_add_messages_role_idx(conn: aiosqlite.Connection) -> None:
+    """Add composite index on messages table for role-filtered queries.
+    
+    This index optimizes queries like:
+    SELECT content FROM messages WHERE guild_id = ? AND channel_id = ? AND role = 'assistant' ORDER BY id DESC
+    """
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS messages_role_id_idx 
+        ON messages(guild_id, channel_id, role, id DESC)
+    """)
+    await conn.commit()
+
+
 MIGRATIONS: List[Migration] = [
-    # v1: Initial schema (applied from schema.sql)
-    # No migration function needed - handled by init
+    _migration_v1_placeholder,  # v1: Initial schema (applied from schema.sql)
+    _migration_v2_add_messages_role_idx,  # v2: Add messages_role_id_idx
 ]
 
 

@@ -25,15 +25,19 @@ class RateLimiter:
         self._last_user: Dict[str, float] = {}
         self._last_cleanup: float = time.monotonic()
 
+    def _maybe_cleanup(self, now: float) -> None:
+        """Run cleanup if enough time has passed since last cleanup."""
+        if now - self._last_cleanup >= self.cfg.cleanup_interval_sec:
+            self._cleanup(now)
+            self._last_cleanup = now
+
     def allow(self, guild_id: int, channel_id: int, user_id: int) -> bool:
         now = time.monotonic()
         ch_key = f"{guild_id}:{channel_id}"
         u_key = f"{guild_id}:{user_id}"
 
         # Periodic cleanup to prevent unbounded growth
-        if now - self._last_cleanup >= self.cfg.cleanup_interval_sec:
-            self._cleanup(now)
-            self._last_cleanup = now
+        self._maybe_cleanup(now)
 
         # Check channel cooldown
         last_ch = self._last_channel.get(ch_key, 0.0)
@@ -55,9 +59,7 @@ class RateLimiter:
         self._last_user[u_key] = now
         
         # Periodic cleanup to prevent unbounded growth
-        if now - self._last_cleanup >= self.cfg.cleanup_interval_sec:
-            self._cleanup(now)
-            self._last_cleanup = now
+        self._maybe_cleanup(now)
 
     def _cleanup(self, now: float) -> None:
         """Remove entries older than their respective cooldown periods."""
