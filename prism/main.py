@@ -583,6 +583,8 @@ async def amain() -> None:
         try:
             if not bot.is_closed():
                 await bot.close()
+                # Give aiohttp time to finish cleanup tasks to avoid "Unclosed client session" warnings
+                await asyncio.sleep(0.25)
         except Exception:  # noqa: BLE001
             pass
         try:
