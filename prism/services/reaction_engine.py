@@ -16,6 +16,22 @@ log = logging.getLogger(__name__)
 
 _ONLY_PUNCT_WS_RE = re.compile(r"^[\W_\s]+$")
 
+# Fallback Unicode emojis for when no custom emojis are available or keyword matching fails
+_FALLBACK_UNICODE_EMOJIS = [
+    ("👍", "thumbs_up", "positive, approval, good, like, agree"),
+    ("❤️", "heart", "love, like, care, emotion"),
+    ("😊", "smiling_face", "happy, smile, joy, positive"),
+    ("🎉", "party_popper", "celebration, party, congratulations, achievement"),
+    ("😂", "laughing", "funny, lol, humor, laugh"),
+    ("🔥", "fire", "hot, cool, awesome, amazing"),
+    ("💯", "hundred", "perfect, excellent, great, full score"),
+    ("👏", "clapping", "applause, well done, bravo, congratulations"),
+    ("😍", "heart_eyes", "love, adore, wonderful, beautiful"),
+    ("🤔", "thinking", "hmm, consider, think, wonder"),
+    ("😢", "sad", "sad, cry, sorry, sympathy"),
+    ("👀", "eyes", "look, see, watching, interested"),
+]
+
 
 @dataclass
 class ReactionEngineConfig:
@@ -70,21 +86,47 @@ class ReactionEngine:
                         cmeta.append({"token": tok, "name": e.name, "description": ""})
                 except Exception:
                     pass
+            # Final fallback: use common Unicode emojis if still no candidates
             if not cmeta:
+                log.debug("Using fallback Unicode emojis for reaction candidates")
+                for emoji_char, name, desc in _FALLBACK_UNICODE_EMOJIS:
+                    cmeta.append({"token": emoji_char, "name": name, "description": desc})
+            if not cmeta:
+                log.warning("No emoji candidates available for reaction (guild=%s, channel=%s)", message.guild.id, message.channel.id)
                 return 0
+            
+            log.debug("Reaction candidates (%d): %s", len(cmeta), [m.get("token") for m in cmeta[:8]])
 
             # Usage weights from recent reaction history (per channel)
             usage = await self._get_usage_weights(message.guild.id, message.channel.id)
 
             decision = await self._score_with_llm(orc, content, cmeta, usage)
-            if not decision or not decision.emoji or decision.score < self.cfg.min_score:
+            if not decision:
+                log.info("LLM returned no decision for reaction (guild=%s, channel=%s, msg_id=%s)", message.guild.id, message.channel.id, message.id)
+                return 0
+            
+            log.info("LLM reaction decision: emoji=%s, score=%.2f, reason=%s (guild=%s, channel=%s, msg_id=%s)", 
+                     decision.emoji, decision.score, decision.reason[:50], message.guild.id, message.channel.id, message.id)
+            
+            if not decision.emoji:
+                log.info("Decision has no emoji (guild=%s, channel=%s, msg_id=%s)", message.guild.id, message.channel.id, message.id)
+                return 0
+            
+            if decision.score < self.cfg.min_score:
+                log.info("Decision score %.2f below threshold %.2f (guild=%s, channel=%s, msg_id=%s)", 
+                         decision.score, self.cfg.min_score, message.guild.id, message.channel.id, message.id)
                 return 0
 
             added = await self._add_reaction_token(message, decision.emoji)
             if added:
                 self.rate.mark(message.guild.id, message.channel.id, message.author.id)
                 await self._log(message.guild.id, message.channel.id, message.id, decision.emoji, decision.score, decision.reason)
+                log.info("Successfully added reaction %s to message (guild=%s, channel=%s, msg_id=%s)", 
+                         decision.emoji, message.guild.id, message.channel.id, message.id)
                 return 1
+            else:
+                log.warning("Failed to add reaction %s to message (guild=%s, channel=%s, msg_id=%s)", 
+                            decision.emoji, message.guild.id, message.channel.id, message.id)
             return 0
         except Exception as e:  # noqa: BLE001
             log.debug("maybe_react failed: %s", e)
@@ -92,14 +134,17 @@ class ReactionEngine:
 
     async def _score_with_llm(self, orc: Any, content: str, cmeta: List[Dict[str, Any]], usage: Dict[str, int]) -> Optional[ReactionDecision]:
         system = (
-            "You decide if a single emoji reaction is appropriate for a Discord message.\n"
-            "Choose at most one emoji from the provided candidates, or none.\n"
-            "Prefer custom server emojis from the candidates when they fit the sentiment/context.\n"
+            "You decide if an emoji reaction is appropriate for a Discord message.\n"
+            "You should be friendly and enthusiastic - add reactions when messages express emotions, achievements, or interesting content.\n"
+            "Choose one emoji from the provided candidates that best matches the message sentiment.\n"
+            "Prefer custom server emojis when available and relevant.\n"
             "Consider popularity hints to keep reactions feeling native to the channel.\n"
             "Output STRICT JSON only: {\"emoji\": string, \"score\": number, \"reason\": string}.\n"
-            "- emoji must be one of the candidates (do not invent).\n"
-            "- score is 0.0–1.0 confidence.\n"
-            "- Be tasteful; avoid spam; reflect sentiment/context.\n"
+            "- emoji: one of the candidate tokens (copy exactly)\n"
+            "- score: 0.0–1.0 confidence (be generous: 0.7+ for good matches)\n"
+            "- reason: brief explanation why this emoji fits\n"
+            "Examples of when to react: positive statements, achievements, emotions, questions, interesting topics.\n"
+            "You can choose not to react by setting score to 0.0 if the message is truly neutral or boring.\n"
         )
         # Build readable candidate lines with titles, type, and simple popularity
         lines: List[str] = []
@@ -135,6 +180,7 @@ class ReactionEngine:
             log.debug("LLM reaction score failed: %s", e)
             return None
         raw = (text or "").strip()
+        log.debug("LLM reaction response (raw): %s", raw[:200])
         data: Dict[str, Any] | None = None
         try:
             data = json.loads(raw)
@@ -148,6 +194,7 @@ class ReactionEngine:
             except Exception:
                 data = None
         if not isinstance(data, dict):
+            log.debug("LLM reaction response not valid JSON dict: %s", type(data))
             return None
         emoji = str(data.get("emoji") or "").strip()
         reason = str(data.get("reason") or "").strip()
@@ -155,7 +202,10 @@ class ReactionEngine:
             score = float(data.get("score") or 0.0)
         except Exception:
             score = 0.0
+        log.debug("LLM reaction parsed: emoji=%s, score=%.2f, reason=%s", emoji, score, reason[:50])
         if not emoji or emoji not in tokens:
+            if emoji:
+                log.debug("LLM returned emoji not in candidates: %s (candidates: %s)", emoji, tokens[:5])
             return None
         return ReactionDecision(emoji=emoji, score=score, reason=reason)
 
