@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import List, Tuple
+from typing import Tuple
 import os
 
 from .config import load_config
@@ -130,13 +130,12 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
         await bot.wait_until_ready()
         while not bot.is_closed():
             try:
-                # Wait 24 hours between pruning runs
-                await asyncio.sleep(86400)
-                
                 # Prune messages older than 30 days
                 deleted = await bot.prism_memory.prune_old_messages(days=30)  # type: ignore[attr-defined]
                 if deleted > 0:
                     log.info("Pruned %d old messages from database", deleted)
+                # Wait 24 hours between pruning runs
+                await asyncio.sleep(86400)
             except asyncio.CancelledError:
                 break
             except Exception as e:

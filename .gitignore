@@ -16,3 +16,5 @@ venv/
 /.mamba/
 .python-version
 .pyenv/
+.coverage
+htmlcov/

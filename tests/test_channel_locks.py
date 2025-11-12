@@ -1,5 +1,4 @@
 """Tests for channel lock manager."""
-import asyncio
 import time
 import pytest
 from prism.services.channel_locks import ChannelLockManager
@@ -49,14 +48,14 @@ def test_channel_lock_manager_cleanup():
     manager._cleanup_interval = 0.01  # Force frequent cleanup checks
     
     # Create a lock
-    lock1 = manager.get_lock(123)
+    manager.get_lock(123)
     assert manager.get_stats()["active_locks"] == 1
     
     # Wait for it to expire
     time.sleep(0.15)
     
     # Get another lock to trigger cleanup
-    lock2 = manager.get_lock(456)
+    manager.get_lock(456)
     
     # Old lock should be cleaned up, new one should exist
     stats = manager.get_stats()
@@ -71,7 +70,7 @@ def test_channel_lock_manager_does_not_cleanup_active():
     
     # Create locks
     lock1 = manager.get_lock(123)
-    lock2 = manager.get_lock(456)
+    manager.get_lock(456)
     
     # Wait a bit but keep using lock1
     time.sleep(0.5)

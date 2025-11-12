@@ -1,5 +1,4 @@
 """Tests for emoji enforcer module."""
-import pytest
 from prism.services.emoji_enforcer import (
     has_emoji,
     ensure_emoji_per_sentence,
