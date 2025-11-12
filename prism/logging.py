@@ -13,6 +13,8 @@ _console_date = None  # type: ignore[var-annotated]
 _console_logs_dir = None  # type: ignore[var-annotated]
 _console_retention_days = 14
 _orig_excepthook = None  # type: ignore[var-annotated]
+_orig_stdout = None  # type: ignore[var-annotated]
+_orig_stderr = None  # type: ignore[var-annotated]
 
 
 def _int_env(name: str, default: int) -> int:
@@ -65,7 +67,6 @@ class _Tee:
     def __init__(self, stream, is_stderr: bool = False):
         self._stream = stream
         self._is_stderr = is_stderr
-        self._buf = ""
 
     def write(self, data):
         try:
@@ -78,19 +79,6 @@ class _Tee:
                 _console_log_file.write(data)
         except Exception:
             pass
-        # Mirror stderr lines into the error logger so they land in errors.log
-        if self._is_stderr:
-            try:
-                # Buffer and emit per complete line to avoid fragment spam
-                self._buf += str(data)
-                while "\n" in self._buf:
-                    line, self._buf = self._buf.split("\n", 1)
-                    s = line.strip()
-                    if s:
-                        logging.getLogger("console.stderr").error(s)
-            except Exception:
-                # Never let logging failures break writes
-                self._buf = ""
 
     def flush(self):
         try:
@@ -102,15 +90,6 @@ class _Tee:
                 _console_log_file.flush()
         except Exception:
             pass
-        # Flush any trailing stderr buffer content
-        if self._is_stderr and self._buf:
-            try:
-                s = self._buf.strip()
-                if s:
-                    logging.getLogger("console.stderr").error(s)
-            except Exception:
-                pass
-            self._buf = ""
 
     def isatty(self):
         try:
@@ -163,7 +142,7 @@ def _pick_logs_dir() -> str:
 
 
 def setup_logging(level: str = "INFO") -> None:
-    global _tee_installed, _console_logs_dir, _console_retention_days, _orig_excepthook
+    global _tee_installed, _console_logs_dir, _console_retention_days, _orig_excepthook, _orig_stdout, _orig_stderr
 
     logs_dir = _pick_logs_dir()
 
@@ -171,12 +150,18 @@ def setup_logging(level: str = "INFO") -> None:
     _console_logs_dir = logs_dir
     _console_retention_days = _int_env("CONSOLE_LOG_RETENTION_DAYS", 14)
 
+    # Store original stdout/stderr before installing tee
+    if _orig_stdout is None:
+        _orig_stdout = sys.stdout
+    if _orig_stderr is None:
+        _orig_stderr = sys.stderr
+
     # Install stdout/stderr tee (rotated daily by date-named files with pruning)
     if not _tee_installed:
         try:
             _ensure_console_file_for_today()
-            sys.stdout = _Tee(sys.stdout, is_stderr=False)
-            sys.stderr = _Tee(sys.stderr, is_stderr=True)
+            sys.stdout = _Tee(_orig_stdout, is_stderr=False)
+            sys.stderr = _Tee(_orig_stderr, is_stderr=True)
             _tee_installed = True
         except Exception:
             _tee_installed = False
@@ -188,14 +173,42 @@ def setup_logging(level: str = "INFO") -> None:
     datefmt = os.getenv("PRISM_LOG_DATEFMT", "%Y-%m-%d %H:%M:%S")
     formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
 
-    console_handler = logging.StreamHandler(sys.stdout)
+    class _TerminalStream:
+        """Stream wrapper that writes directly to original stdout, bypassing tee."""
+        def write(self, data):
+            try:
+                if _orig_stdout is not None:
+                    _orig_stdout.write(data)
+            except Exception:
+                pass
+
+        def flush(self):
+            try:
+                if _orig_stdout is not None:
+                    _orig_stdout.flush()
+            except Exception:
+                pass
+
+        def isatty(self):
+            try:
+                return bool(_orig_stdout.isatty()) if _orig_stdout is not None else False
+            except Exception:
+                return False
+
+    console_handler = logging.StreamHandler(_TerminalStream())
     console_handler.setFormatter(formatter)
 
-    # App log (INFO/DEBUG/etc.) with daily rotation
+    # Filter to exclude ERROR and CRITICAL from app_log
+    class _NonErrorFilter(logging.Filter):
+        def filter(self, record):
+            return record.levelno < logging.ERROR
+
+    # App log (INFO/DEBUG/WARNING) with daily rotation (excludes ERROR/CRITICAL)
     app_retention = _int_env("LOG_RETENTION_DAYS", 14)
     app_log: FileHandler = TimedRotatingFileHandler(
         os.path.join(logs_dir, "prism.log"), when="midnight", interval=1, backupCount=app_retention, encoding="utf-8"
     )
+    app_log.addFilter(_NonErrorFilter())
     app_log.setFormatter(formatter)
 
     # Error-only log with longer retention
@@ -227,8 +240,8 @@ def setup_logging(level: str = "INFO") -> None:
         discord_logger.setLevel(getattr(logging, discord_level, logging.INFO))
     except Exception:
         discord_logger.setLevel(logging.INFO)
-    # Keep propagation so discord logs also flow to root handlers
-    discord_logger.propagate = True
+    # Stop propagation so discord logs only appear in discord.log
+    discord_logger.propagate = False
 
     logging.captureWarnings(True)
 
