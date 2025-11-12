@@ -6,7 +6,7 @@ in bot responses to ensure engaging, non-repetitive emoji usage.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional
+from typing import List
 
 
 def has_emoji(text: str) -> bool:
@@ -21,6 +21,7 @@ def has_emoji(text: str) -> bool:
         if hasattr(_emoji_lib, "emoji_list"):
             return bool(_emoji_lib.emoji_list(text))
     except (ImportError, Exception):
+        # If the emoji library is not available or fails, ignore the error and return False below.
         pass
     
     return False
@@ -47,7 +48,7 @@ def ensure_emoji_per_sentence(
         return text
     
     # Split on sentence boundaries while keeping delimiters
-    parts = re.split(r"(\s*(?<=\.|\!|\?)\s+)", text)
+    parts = re.split(r"(\s*(?<=[.!?])\s+)", text)
     
     if not parts or len(parts) == 1:
         return text
@@ -70,7 +71,7 @@ def ensure_emoji_per_sentence(
                 
                 if tok:
                     # Append before trailing whitespace
-                    s = s.rstrip() + " " + tok + ("" if s.endswith(" ") else "")
+                    s = s.rstrip() + " " + tok + (" " if s.endswith(" ") else "")
             out_parts.append(s)
         else:
             out_parts.append(seg)
@@ -126,6 +127,7 @@ def deduplicate_unicode_emojis(text: str) -> str:
                         continue
                     seen_uni.add(ch)
             except Exception:
+                # Ignore exceptions from emoji library; skip problematic character.
                 pass
             i += 1
         return "".join(chars)

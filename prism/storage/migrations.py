@@ -73,6 +73,10 @@ async def apply_migrations(conn: aiosqlite.Connection, target_version: int | Non
     if target_version is None:
         target_version = len(MIGRATIONS)
     
+    if target_version > len(MIGRATIONS):
+        log.error("Requested target_version %d exceeds available migrations (%d)", target_version, len(MIGRATIONS))
+        return
+    
     if current >= target_version:
         log.debug("Database schema is up to date (v%d)", current)
         return
@@ -80,10 +84,7 @@ async def apply_migrations(conn: aiosqlite.Connection, target_version: int | Non
     log.info("Migrating database schema from v%d to v%d", current, target_version)
     
     for version in range(current + 1, target_version + 1):
-        if version > len(MIGRATIONS):
-            log.warning("No migration defined for version %d", version)
-            break
-        
+        # MIGRATIONS[version - 1] is safe because target_version <= len(MIGRATIONS)
         migration = MIGRATIONS[version - 1]
         log.info("Applying migration v%d...", version)
         
