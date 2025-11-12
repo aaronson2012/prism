@@ -6,7 +6,23 @@ in bot responses to ensure engaging, non-repetitive emoji usage.
 from __future__ import annotations
 
 import re
-from typing import List
+from typing import List, Optional
+
+# Cache emoji library availability at module level for performance
+_EMOJI_LIB: Optional[object] = None
+_EMOJI_LIB_CHECKED = False
+
+def _get_emoji_lib() -> Optional[object]:
+    """Get cached emoji library or None if not available."""
+    global _EMOJI_LIB, _EMOJI_LIB_CHECKED
+    if not _EMOJI_LIB_CHECKED:
+        try:
+            import emoji as _emoji_lib  # type: ignore
+            _EMOJI_LIB = _emoji_lib
+        except (ImportError, Exception):
+            _EMOJI_LIB = None
+        _EMOJI_LIB_CHECKED = True
+    return _EMOJI_LIB
 
 
 def has_emoji(text: str) -> bool:
@@ -15,14 +31,13 @@ def has_emoji(text: str) -> bool:
     if re.search(r"<a?:[A-Za-z0-9_]+:\d+>", text):
         return True
     
-    # Check for Unicode emoji using emoji library if available
-    try:
-        import emoji as _emoji_lib  # type: ignore
-        if hasattr(_emoji_lib, "emoji_list"):
-            return bool(_emoji_lib.emoji_list(text))
-    except (ImportError, Exception):
-        # If the emoji library is not available or fails, ignore the error and return False below.
-        pass
+    # Check for Unicode emoji using cached emoji library
+    emoji_lib = _get_emoji_lib()
+    if emoji_lib and hasattr(emoji_lib, "emoji_list"):
+        try:
+            return bool(emoji_lib.emoji_list(text))
+        except Exception:
+            pass
     
     return False
 
@@ -110,29 +125,26 @@ def deduplicate_unicode_emojis(text: str) -> str:
     Returns:
         Text with duplicate Unicode emojis removed
     """
-    try:
-        import emoji as _emoji_lib  # type: ignore
-        if not hasattr(_emoji_lib, "is_emoji"):
-            return text
-        
-        seen_uni: set[str] = set()
-        chars = list(text)
-        i = 0
-        while i < len(chars):
-            ch = chars[i]
-            try:
-                if _emoji_lib.is_emoji(ch):
-                    if ch in seen_uni:
-                        del chars[i]
-                        continue
-                    seen_uni.add(ch)
-            except Exception:
-                # Ignore exceptions from emoji library; skip problematic character.
-                pass
-            i += 1
-        return "".join(chars)
-    except (ImportError, Exception):
+    emoji_lib = _get_emoji_lib()
+    if not emoji_lib or not hasattr(emoji_lib, "is_emoji"):
         return text
+    
+    seen_uni: set[str] = set()
+    chars = list(text)
+    i = 0
+    while i < len(chars):
+        ch = chars[i]
+        try:
+            if emoji_lib.is_emoji(ch):
+                if ch in seen_uni:
+                    del chars[i]
+                    continue
+                seen_uni.add(ch)
+        except Exception:
+            # Ignore exceptions from emoji library; skip problematic character.
+            pass
+        i += 1
+    return "".join(chars)
 
 
 def declump_custom_emojis(text: str) -> str:
@@ -166,28 +178,25 @@ def declump_unicode_emojis(text: str) -> str:
     Returns:
         Text with consecutive Unicode emojis removed
     """
-    try:
-        import emoji as _emoji_lib  # type: ignore
-        if not hasattr(_emoji_lib, "is_emoji"):
-            return text
-        
-        out_chars = []
-        prev_was_emoji = False
-        for ch in text:
-            try:
-                is_e = _emoji_lib.is_emoji(ch)
-            except Exception:
-                is_e = False
-            
-            if is_e and prev_was_emoji:
-                continue
-            
-            out_chars.append(ch)
-            prev_was_emoji = is_e
-        
-        return "".join(out_chars)
-    except (ImportError, Exception):
+    emoji_lib = _get_emoji_lib()
+    if not emoji_lib or not hasattr(emoji_lib, "is_emoji"):
         return text
+    
+    out_chars = []
+    prev_was_emoji = False
+    for ch in text:
+        try:
+            is_e = emoji_lib.is_emoji(ch)
+        except Exception:
+            is_e = False
+        
+        if is_e and prev_was_emoji:
+            continue
+        
+        out_chars.append(ch)
+        prev_was_emoji = is_e
+    
+    return "".join(out_chars)
 
 
 def enforce_emoji_distribution(

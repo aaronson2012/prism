@@ -77,18 +77,19 @@ class MemoryService:
         Returns:
             Number of messages deleted
         """
-        # Get count before deletion
-        count_before = await self.db.fetchone("SELECT COUNT(*) FROM messages")
-        before = int(count_before[0]) if count_before else 0
-        
-        # Delete old messages
-        await self.db.execute(
-            "DELETE FROM messages WHERE ts < datetime('now', ? || ' days')",
-            (f"-{days}",),
+        # Count messages to be deleted in a single efficient query
+        # This is faster than counting before/after deletion
+        count_row = await self.db.fetchone(
+            "SELECT COUNT(*) FROM messages WHERE ts < datetime('now', ? || ' days')",
+            (f"-{days}",)
         )
+        count_to_delete = int(count_row[0]) if count_row else 0
         
-        # Get count after deletion
-        count_after = await self.db.fetchone("SELECT COUNT(*) FROM messages")
-        after = int(count_after[0]) if count_after else 0
+        if count_to_delete > 0:
+            # Delete old messages
+            await self.db.execute(
+                "DELETE FROM messages WHERE ts < datetime('now', ? || ' days')",
+                (f"-{days}",),
+            )
         
-        return before - after
+        return count_to_delete

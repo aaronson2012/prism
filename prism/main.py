@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Tuple
 import os
 
@@ -343,8 +344,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                     "SELECT content FROM messages WHERE guild_id = ? AND channel_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 30",
                                     (str(message.guild.id), str(message.channel.id)),
                                 )
-                                import re as _re  # local import to avoid top-level dep
-                                _tok_re = _re.compile(r"<a?:[^:>]+:\d+>")
+                                # Compile regex pattern once for efficiency
+                                _tok_re = re.compile(r"<a?:[^:>]+:\d+>")
                                 for r in rows:
                                     content_row = str(r[0] or "")
                                     for m in _tok_re.findall(content_row):
