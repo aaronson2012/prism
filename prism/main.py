@@ -591,11 +591,6 @@ async def amain() -> None:
             await db.close()
 
 
-async def build_facts_section(bot, message):
-    # Learning mechanism removed; no per-user facts are included.
-    return ""
-
-
 def main() -> None:
     try:
         asyncio.run(amain())

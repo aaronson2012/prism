@@ -12,9 +12,6 @@ log = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "default_persona": "default",
-    # Overrides retained in stored JSON for backward compatibility; ignored.
-    "channel_overrides": {},
-    "user_overrides": {},
 }
 
 
