@@ -44,13 +44,14 @@ def _clip_reply_to_limit(text: str) -> Tuple[str, bool]:
         if len(truncated) + len(closing) <= DISCORD_MESSAGE_LIMIT:
             truncated += closing
         else:
+            # Cannot fit closing marker, remove the opening code block instead
             last_tick = truncated.rfind("```")
             if last_tick != -1:
                 truncated = truncated[:last_tick].rstrip()
 
-    # Ensure the final message stays within the hard cap after adjustments.
-    while len(truncated) > DISCORD_MESSAGE_LIMIT and truncated:
-        truncated = truncated[:-1].rstrip()
+    # Final safety check: ensure we never exceed the limit
+    if len(truncated) > DISCORD_MESSAGE_LIMIT:
+        truncated = truncated[:DISCORD_MESSAGE_LIMIT].rstrip()
 
     return truncated, True
 
