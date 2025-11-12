@@ -22,18 +22,16 @@ log = logging.getLogger(__name__)
 
 
 DISCORD_MESSAGE_LIMIT = 2000
-_TRUNCATION_NOTICE = "\n(Reply truncated to fit Discord's 2000 character limit.)"
 _CUSTOM_EMOJI_PATTERN = re.compile(r"<a?:[^:>]+:\d+>")
 
 
 def _clip_reply_to_limit(text: str) -> Tuple[str, bool]:
-    """Ensure replies respect Discord's 2000-character limit with a friendly notice."""
+    """Ensure replies respect Discord's 2000-character limit by silently truncating if needed."""
     if len(text) <= DISCORD_MESSAGE_LIMIT:
         return text, False
 
-    suffix = _TRUNCATION_NOTICE
-    limit = max(0, DISCORD_MESSAGE_LIMIT - len(suffix))
-    truncated = text[:limit].rstrip()
+    # Truncate to the limit
+    truncated = text[:DISCORD_MESSAGE_LIMIT].rstrip()
 
     # Avoid leaving partial custom emoji tokens hanging at the end.
     partial_idx = truncated.rfind("<")
@@ -43,24 +41,18 @@ def _clip_reply_to_limit(text: str) -> Tuple[str, bool]:
     # Close unfinished fenced code blocks if possible without exceeding the limit.
     if truncated.count("```") % 2 == 1:
         closing = "\n```"
-        if len(truncated) + len(closing) <= limit:
+        if len(truncated) + len(closing) <= DISCORD_MESSAGE_LIMIT:
             truncated += closing
         else:
             last_tick = truncated.rfind("```")
             if last_tick != -1:
                 truncated = truncated[:last_tick].rstrip()
 
-    result = truncated
-    if not result:
-        # Degenerate case: the suffix must fit alone.
-        return suffix[-DISCORD_MESSAGE_LIMIT:], True
-
     # Ensure the final message stays within the hard cap after adjustments.
-    while len(result) + len(suffix) > DISCORD_MESSAGE_LIMIT and result:
-        result = result[:-1]
-    result = result.rstrip()
+    while len(truncated) > DISCORD_MESSAGE_LIMIT and truncated:
+        truncated = truncated[:-1].rstrip()
 
-    return result + suffix, True
+    return truncated, True
 
 
 def build_bot(cfg):
@@ -106,7 +98,8 @@ def _load_base_guidelines_text() -> str:
         "- Respect user preferences and server norms.\n"
         "- Do not request or store secrets; avoid speculating about private data.\n"
         "- Stay within the conversation context; don't claim capabilities you cannot perform here.\n"
-        "- If unsure, say so briefly and propose a sensible next step.\n\n"
+        "- If unsure, say so briefly and propose a sensible next step.\n"
+        "- Keep all responses under 2000 characters to fit within Discord's message limit.\n\n"
         "Global emoji guidelines (conversation‑wide):\n"
         "- Be emoji‑eager: include at least one emoji per sentence unless the user explicitly asks for no emojis.\n"
         "- Prefer custom server emojis when available; otherwise use appropriate Unicode emojis.\n"
