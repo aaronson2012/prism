@@ -18,7 +18,6 @@ class Config:
     intents_message_content: bool = True
     # Feature toggles
     emoji_talk_enabled: bool = True
-    emoji_reactions_enabled: bool = True
     # Fast command sync to specific guilds (comma-separated IDs)
     command_guild_ids: List[int] | None = None
 
@@ -60,6 +59,5 @@ def load_config() -> Config:
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         intents_message_content=os.getenv("INTENTS_MESSAGE_CONTENT", "true").lower() in {"1", "true", "yes", "on"},
         emoji_talk_enabled=os.getenv("EMOJI_TALK_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
-        emoji_reactions_enabled=os.getenv("EMOJI_REACTIONS_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
         command_guild_ids=guild_ids,
     )

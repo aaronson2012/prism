@@ -39,18 +39,4 @@ CREATE TABLE IF NOT EXISTS emoji_index (
 CREATE INDEX IF NOT EXISTS emoji_idx
   ON emoji_index(guild_id, name);
 
-CREATE TABLE IF NOT EXISTS reaction_log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  guild_id TEXT,
-  channel_id TEXT,
-  message_id TEXT,
-  emoji TEXT,
-  score REAL,
-  reason TEXT,
-  ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS reaction_log_idx
-  ON reaction_log(guild_id, channel_id, ts);
-
 -- Removed user_facts and facts_backfill tables (learning disabled)

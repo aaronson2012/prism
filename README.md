@@ -16,9 +16,6 @@ Maintains conversation history per channel with automatic message pruning (30-da
 - **Emoji Deduplication**: Prevents repetitive emoji usage in responses
 - **Custom Emoji Descriptions**: Automatically generates descriptive metadata for server emojis
 
-### 🎯 AI-Driven Reactions
-Optional feature that intelligently adds emoji reactions to user messages based on sentiment and context (rate-limited and configurable).
-
 ### 🛠️ Custom Persona Creation
 Create new personas using AI assistance - just provide a brief description and let the bot generate a complete personality profile with system prompts.
 
@@ -73,7 +70,6 @@ FALLBACK_MODEL=google/gemini-2.5-flash-lite
 
 # Feature Toggles (Optional - defaults shown)
 EMOJI_TALK_ENABLED=true          # Enable emoji suggestions in responses
-EMOJI_REACTIONS_ENABLED=false    # Enable AI-driven emoji reactions
 
 # Logging (Optional)
 LOG_LEVEL=INFO                    # Options: DEBUG, INFO, WARNING, ERROR
@@ -225,8 +221,6 @@ prism/
 │   │   ├── settings.py             # Guild settings management
 │   │   ├── emoji_index.py          # Emoji indexing and suggestions
 │   │   ├── emoji_enforcer.py       # Emoji distribution logic
-│   │   ├── reaction_engine.py      # AI-driven reaction system
-│   │   ├── rate_limit.py           # Rate limiting for reactions
 │   │   ├── channel_locks.py        # Per-channel lock management
 │   │   └── openrouter_client.py    # OpenRouter API client
 │   │
@@ -275,10 +269,6 @@ COMMAND_GUILD_IDS=123456789,987654321
 
 - **Channel Lock Cleanup**: Automatically cleans up locks for inactive channels (default: 1 hour threshold)
 - **Message Pruning**: Runs daily to remove messages older than 30 days
-- **Rate Limiting**: 
-  - Channel cooldown: 120 seconds between reactions
-  - User cooldown: 60 seconds per user
-  - Automatic cleanup every 5 minutes
 
 ### Logging
 
