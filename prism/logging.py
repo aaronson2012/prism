@@ -15,6 +15,7 @@ _console_retention_days = 14
 _orig_excepthook = None  # type: ignore[var-annotated]
 _orig_stdout = None  # type: ignore[var-annotated]
 _orig_stderr = None  # type: ignore[var-annotated]
+_setup_lock = threading.Lock()
 
 
 def _int_env(name: str, default: int) -> int:
@@ -64,9 +65,8 @@ def _ensure_console_file_for_today() -> None:
 
 
 class _Tee:
-    def __init__(self, stream, is_stderr: bool = False):
+    def __init__(self, stream):
         self._stream = stream
-        self._is_stderr = is_stderr
 
     def write(self, data):
         try:
@@ -150,18 +150,19 @@ def setup_logging(level: str = "INFO") -> None:
     _console_logs_dir = logs_dir
     _console_retention_days = _int_env("CONSOLE_LOG_RETENTION_DAYS", 14)
 
-    # Store original stdout/stderr before installing tee
-    if _orig_stdout is None:
-        _orig_stdout = sys.stdout
-    if _orig_stderr is None:
-        _orig_stderr = sys.stderr
+    # Store original stdout/stderr before installing tee (thread-safe)
+    with _setup_lock:
+        if _orig_stdout is None:
+            _orig_stdout = sys.stdout
+        if _orig_stderr is None:
+            _orig_stderr = sys.stderr
 
     # Install stdout/stderr tee (rotated daily by date-named files with pruning)
     if not _tee_installed:
         try:
             _ensure_console_file_for_today()
-            sys.stdout = _Tee(_orig_stdout, is_stderr=False)
-            sys.stderr = _Tee(_orig_stderr, is_stderr=True)
+            sys.stdout = _Tee(_orig_stdout)
+            sys.stderr = _Tee(_orig_stderr)
             _tee_installed = True
         except Exception:
             _tee_installed = False
@@ -174,28 +175,33 @@ def setup_logging(level: str = "INFO") -> None:
     formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
 
     class _TerminalStream:
-        """Stream wrapper that writes directly to original stdout, bypassing tee."""
+        """Stream wrapper that writes directly to the specified stream, bypassing tee."""
+        def __init__(self, stream):
+            self._stream = stream
+
         def write(self, data):
             try:
-                if _orig_stdout is not None:
-                    _orig_stdout.write(data)
+                if self._stream is not None:
+                    self._stream.write(data)
             except Exception:
+                # Intentionally ignore errors writing to original stdout to avoid interfering with application flow.
                 pass
 
         def flush(self):
             try:
-                if _orig_stdout is not None:
-                    _orig_stdout.flush()
+                if self._stream is not None:
+                    self._stream.flush()
             except Exception:
+                # Ignore exceptions during flush to prevent logging errors from affecting application flow.
                 pass
 
         def isatty(self):
             try:
-                return bool(_orig_stdout.isatty()) if _orig_stdout is not None else False
+                return bool(self._stream.isatty()) if self._stream is not None else False
             except Exception:
                 return False
 
-    console_handler = logging.StreamHandler(_TerminalStream())
+    console_handler = logging.StreamHandler(_TerminalStream(_orig_stdout))
     console_handler.setFormatter(formatter)
 
     # Filter to exclude ERROR and CRITICAL from app_log
