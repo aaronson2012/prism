@@ -567,12 +567,16 @@ async def amain() -> None:
         log.info("Received Ctrl-C, shutting down gracefully...")
         try:
             await bot.close()
+            # Give aiohttp time to finish cleanup tasks to avoid "Unclosed client session" warnings
+            await asyncio.sleep(0.25)
         except Exception:  # noqa: BLE001
             pass
     except asyncio.CancelledError:
         log.info("Cancelled, shutting down gracefully...")
         try:
             await bot.close()
+            # Give aiohttp time to finish cleanup tasks to avoid "Unclosed client session" warnings
+            await asyncio.sleep(0.25)
         except Exception:  # noqa: BLE001
             pass
     except Exception as e:  # noqa: BLE001
