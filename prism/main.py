@@ -14,8 +14,6 @@ from .services.settings import SettingsService
 from .services.personas import PersonasService
 from .services.memory import MemoryService, Message as MemMessage
 from .services.emoji_index import EmojiIndexService
-from .services.reaction_engine import ReactionEngine, ReactionEngineConfig
-from .services.rate_limit import RateLimiter, RateLimitConfig
 from .services.emoji_enforcer import fallback_add_custom_emoji, enforce_emoji_distribution
 from .services.channel_locks import ChannelLockManager
 
@@ -269,12 +267,6 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
         except Exception as e:  # noqa: BLE001
             log.debug("Failed to persist message memory: %s", e)
 
-        # Maybe add an emoji reaction (AI-gated, rate-limited) without blocking
-        if bot.prism_cfg.emoji_reactions_enabled:  # type: ignore[attr-defined]
-            try:
-                asyncio.create_task(bot.prism_react.maybe_react(orc, message))  # type: ignore[attr-defined]
-            except Exception as e:  # noqa: BLE001
-                log.debug("schedule maybe_react failed: %s", e)
 
         mentioned = False
         if bot.user in message.mentions:
@@ -522,13 +514,6 @@ async def amain() -> None:
     bot.prism_memory = MemoryService(db)  # type: ignore[attr-defined]
     bot.prism_emoji = EmojiIndexService(db)  # type: ignore[attr-defined]
     bot.prism_orc = orc  # type: ignore[attr-defined]
-    # Emoji reactions engine (AI-gated)
-    bot.prism_react = ReactionEngine(  # type: ignore[attr-defined]
-        db=db,
-        emoji_index=bot.prism_emoji,  # type: ignore[arg-type]
-        rate_limiter=RateLimiter(RateLimitConfig()),
-        cfg=ReactionEngineConfig(),
-    )
     # Per-channel locks to avoid interleaved generations (with automatic cleanup)
     bot.prism_channel_locks = ChannelLockManager(cleanup_threshold_sec=3600.0)  # type: ignore[attr-defined]
 

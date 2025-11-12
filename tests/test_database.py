@@ -65,5 +65,4 @@ async def test_database_schema_tables_exist(db_with_schema):
     assert "settings" in table_names
     assert "messages" in table_names
     assert "emoji_index" in table_names
-    assert "reaction_log" in table_names
 
