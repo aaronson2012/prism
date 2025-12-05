@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception_type
@@ -20,8 +20,8 @@ class OpenRouterConfig:
     api_key: str
     default_model: str
     fallback_model: str
-    site_url: Optional[str] = None
-    app_name: Optional[str] = None
+    site_url: str | None = None
+    app_name: str | None = None
     timeout_seconds: float = 60.0
 
 
@@ -58,11 +58,11 @@ class OpenRouterClient:
     )
     async def chat_completion(
         self,
-        messages: List[Dict[str, Any]],
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-    ) -> Tuple[str, Dict[str, Any]]:
+        messages: list[dict[str, Any]],
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
         """
         Calls OpenRouter Chat Completions API and returns (text, meta).
         On certain failures, retries with fallback model.
@@ -84,12 +84,12 @@ class OpenRouterClient:
 
     async def _chat_completion_once(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         model: str,
-        temperature: Optional[float],
-        max_tokens: Optional[int],
-    ) -> Tuple[str, Dict[str, Any]]:
-        payload: Dict[str, Any] = {
+        temperature: float | None,
+        max_tokens: int | None,
+    ) -> tuple[str, dict[str, Any]]:
+        payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
         }

@@ -19,8 +19,6 @@ async def test_shutdown_includes_cleanup_delay():
          patch('prism.main.PersonasService') as mock_personas_class, \
          patch('prism.main.MemoryService'), \
          patch('prism.main.EmojiIndexService'), \
-         patch('prism.main.ReactionEngine'), \
-         patch('prism.main.RateLimiter'), \
          patch('prism.main.ChannelLockManager'), \
          patch('prism.cogs.personas.setup'), \
          patch('prism.cogs.memory.setup'), \
@@ -103,8 +101,6 @@ async def test_shutdown_cleanup_on_cancelled_error():
          patch('prism.main.PersonasService') as mock_personas_class, \
          patch('prism.main.MemoryService'), \
          patch('prism.main.EmojiIndexService'), \
-         patch('prism.main.ReactionEngine'), \
-         patch('prism.main.RateLimiter'), \
          patch('prism.main.ChannelLockManager'), \
          patch('prism.cogs.personas.setup'), \
          patch('prism.cogs.memory.setup'), \

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Callable, Awaitable
+from typing import Callable, Awaitable
 
 import aiosqlite
 
@@ -37,7 +37,7 @@ async def _migration_v2_add_messages_role_idx(conn: aiosqlite.Connection) -> Non
     await conn.commit()
 
 
-MIGRATIONS: List[Migration] = [
+MIGRATIONS: list[Migration] = [
     _migration_v1_placeholder,  # v1: Initial schema (applied from schema.sql)
     _migration_v2_add_messages_role_idx,  # v2: Add messages_role_id_idx
 ]

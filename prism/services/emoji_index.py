@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from .db import Database
 
@@ -21,7 +21,7 @@ class CustomEmoji:
     emoji_id: int
     name: str
     animated: bool
-    description: Optional[str]
+    description: str | None
 
 
 class EmojiIndexService:
@@ -33,7 +33,7 @@ class EmojiIndexService:
 
     def __init__(self, db: Database) -> None:
         self.db = db
-        self._unicode_index: Optional[List[Tuple[str, str, List[str]]]] = None
+        self._unicode_index: list[tuple[str, str, list[str]]] | None = None
 
     # ------------------------- Public API -------------------------
     async def index_guild(self, guild: "Any") -> int:
@@ -57,9 +57,9 @@ class EmojiIndexService:
                 log.debug("Failed upsert custom emoji %s:%s: %s", guild.id, getattr(e, "id", "?"), ex)
         return n
 
-    async def index_all_guilds(self, bot: "Any") -> Dict[int, int]:
+    async def index_all_guilds(self, bot: "Any") -> dict[int, int]:
         """Index all guilds the bot is in. Returns map guild_id->count."""
-        results: Dict[int, int] = {}
+        results: dict[int, int] = {}
         for g in getattr(bot, "guilds", []) or []:
             try:
                 results[g.id] = await self.index_guild(g)
@@ -99,8 +99,8 @@ class EmojiIndexService:
         return n
 
     async def suggest_for_text(
-        self, guild_id: int, text: str, style: Optional[str] = None, limit: int = 6
-    ) -> List[str]:
+        self, guild_id: int, text: str, style: str | None = None, limit: int = 6
+    ) -> list[str]:
         """
         Backwards-compatible wrapper that returns only emoji tokens.
         """
@@ -108,8 +108,8 @@ class EmojiIndexService:
         return [m["token"] for m in meta]
 
     async def suggest_with_meta_for_text(
-        self, guild_id: int, text: str, style: Optional[str] = None, limit: int = 6
-    ) -> List[Dict[str, Any]]:
+        self, guild_id: int, text: str, style: str | None = None, limit: int = 6
+    ) -> list[dict[str, Any]]:
         """
         Suggest emoji candidates with metadata for prompts (mix of custom and unicode).
         Returns a list of dicts: {token, name, description}.
@@ -118,7 +118,7 @@ class EmojiIndexService:
 
         # Custom emoji candidates from DB
         custom = await self._fetch_custom(guild_id)
-        custom_scored: List[Tuple[float, Dict[str, Any]]] = []
+        custom_scored: list[tuple[float, dict[str, Any]]] = []
         for ce in custom:
             score = _score_keywords(text_tokens, [ce.name] + _tokenize(ce.description or ""))
             # Global bias toward custom (no modes)
@@ -131,7 +131,7 @@ class EmojiIndexService:
         custom_scored.sort(key=lambda x: x[0], reverse=True)
 
         # Unicode candidates from in-memory index
-        uni_scored: List[Tuple[float, Dict[str, Any]]] = []
+        uni_scored: list[tuple[float, dict[str, Any]]] = []
         for char, name, kws in self._get_unicode_index():
             score = _score_keywords(text_tokens, [name] + kws)
             if score <= 0:
@@ -139,7 +139,7 @@ class EmojiIndexService:
             uni_scored.append((score, {"token": char, "name": name or "Unicode emoji", "description": ""}))
         uni_scored.sort(key=lambda x: x[0], reverse=True)
 
-        merged: List[Dict[str, Any]] = []
+        merged: list[dict[str, Any]] = []
         # Prefer a custom-heavy mix by default (~2/3 custom when available)
         custom_quota = max(1, min(len(custom_scored), (2 * limit + 2) // 3))
         for score, item in custom_scored[: custom_quota]:
@@ -180,12 +180,12 @@ class EmojiIndexService:
                 (str(guild_id), str(emoji_id), name, 1 if animated else 0),
             )
 
-    async def _fetch_custom(self, guild_id: int) -> List[CustomEmoji]:
+    async def _fetch_custom(self, guild_id: int) -> list[CustomEmoji]:
         rows = await self.db.fetchall(
             "SELECT emoji_id, name, animated, description FROM emoji_index WHERE guild_id = ? AND is_custom = 1",
             (str(guild_id),),
         )
-        out: List[CustomEmoji] = []
+        out: list[CustomEmoji] = []
         for r in rows:
             try:
                 out.append(
@@ -201,7 +201,7 @@ class EmojiIndexService:
                 continue
         return out
 
-    async def _describe_custom_batch(self, orc: "Any", items: List[Dict[str, Any]]) -> Dict[str, str]:
+    async def _describe_custom_batch(self, orc: "Any", items: list[dict[str, Any]]) -> dict[str, str]:
         """Call LLM to generate descriptive blurbs (2–3 sentences) for custom emojis based on name.
         Returns mapping by name to description.
         """
@@ -245,7 +245,7 @@ class EmojiIndexService:
                 pass
         return {}
 
-    def _get_unicode_index(self) -> List[Tuple[str, str, List[str]]]:
+    def _get_unicode_index(self) -> list[tuple[str, str, list[str]]]:
         if self._unicode_index is not None:
             return self._unicode_index
         try:
@@ -260,7 +260,7 @@ class EmojiIndexService:
                 except Exception:  # noqa: BLE001
                     data2 = None
                 data = data2
-            index: List[Tuple[str, str, List[str]]] = []
+            index: list[tuple[str, str, list[str]]] = []
             if isinstance(data, dict):
                 for ch, meta in data.items():
                     # name
@@ -290,13 +290,13 @@ class EmojiIndexService:
         return self._unicode_index
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     if not text:
         return []
     return [t.lower() for t in _WORD_RE.findall(text) if t]
 
 
-def _score_keywords(query_tokens: List[str], target_tokens: List[str]) -> float:
+def _score_keywords(query_tokens: list[str], target_tokens: list[str]) -> float:
     if not query_tokens or not target_tokens:
         return 0.0
     qt = set(query_tokens)

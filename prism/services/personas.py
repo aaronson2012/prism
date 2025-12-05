@@ -5,7 +5,7 @@ import logging
 import os
 from dataclasses import dataclass
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -17,14 +17,14 @@ log = logging.getLogger(__name__)
 
 class PersonaModel(BaseModel):
     name: str
-    display_name: Optional[str] = None
+    display_name: str | None = None
     description: str = Field(default="")
     system_prompt: str
-    style: Optional[str] = None
-    model: Optional[str] = None
-    temperature: Optional[float] = None
+    style: str | None = None
+    model: str | None = None
+    temperature: float | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -33,7 +33,7 @@ class PersonaRecord:
     name: str
     source: str  # "builtin" | "user"
     data: PersonaModel
-    path: Optional[str] = None  # filesystem path, if applicable
+    path: str | None = None  # filesystem path, if applicable
 
 
 class PersonasService:
@@ -42,7 +42,7 @@ class PersonasService:
         self.db = db
         # All personas live directly under this directory (TOML only)
         self.defaults_dir = defaults_dir
-        self._builtins: Dict[str, PersonaRecord] = {}
+        self._builtins: dict[str, PersonaRecord] = {}
 
     async def load_builtins(self) -> None:
         self._builtins.clear()
@@ -75,7 +75,7 @@ class PersonasService:
                 name = str(tdata.get("name") or "").strip()
                 desc = str(tdata.get("description") or "").strip()
                 disp = str(tdata.get("display_name") or "").strip()
-                sections: List[str] = []
+                sections: list[str] = []
                 for key in ("personality_traits", "communication_style", "behavior_patterns", "core_principles", "style", "constraints", "system_prompt"):
                     sec = tdata.get(key)
                     if isinstance(sec, dict) and isinstance(sec.get("content"), str):
@@ -97,11 +97,11 @@ class PersonasService:
             except Exception as e:  # noqa: BLE001
                 log.error("Failed loading persona %s: %s", path, e)
 
-    async def list(self) -> List[PersonaRecord]:
+    async def list(self) -> list[PersonaRecord]:
         # Return all personas known from filesystem
         return [self._builtins[k] for k in sorted(self._builtins.keys())]
 
-    async def get(self, name: str) -> Optional[PersonaRecord]:
+    async def get(self, name: str) -> PersonaRecord | None:
         key = name.lower()
         return self._builtins.get(key)
 
@@ -118,7 +118,7 @@ class PersonasService:
         self._write_toml_persona(path, model)
         await self.load_builtins()
 
-    async def update(self, name: str, updates: Dict[str, Any]) -> None:
+    async def update(self, name: str, updates: dict[str, Any]) -> None:
         rec = await self.get(name)
         if not rec:
             raise ValueError(f"Persona '{name}' not found")
@@ -249,7 +249,7 @@ class PersonasService:
             log.error("Failed to write persona file %s: %s", path, e)
             raise ValueError(f"Failed to write persona file: {e}") from e
 
-    async def ai_draft_and_create(self, orc, name: Optional[str], outline: str) -> str:
+    async def ai_draft_and_create(self, orc, name: str | None, outline: str) -> str:
         """Draft a persona with the LLM and create it on disk.
 
         If name is None/empty, the LLM must propose a concise Title Case name.

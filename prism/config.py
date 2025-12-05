@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass
-from typing import Optional, List
 
 from dotenv import load_dotenv
 
@@ -11,15 +12,15 @@ class Config:
     openrouter_api_key: str
     default_model: str = "google/gemini-2.5-flash"
     fallback_model: str = "google/gemini-2.5-flash-lite"
-    openrouter_site_url: Optional[str] = None
-    openrouter_app_name: Optional[str] = None
+    openrouter_site_url: str | None = None
+    openrouter_app_name: str | None = None
     db_path: str = "data/prism.db"
     log_level: str = "INFO"
     intents_message_content: bool = True
     # Feature toggles
     emoji_talk_enabled: bool = True
     # Fast command sync to specific guilds (comma-separated IDs)
-    command_guild_ids: List[int] | None = None
+    command_guild_ids: list[int] | None = None
 
 
 def load_config() -> Config:

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Dict
 
 
 class ChannelLockManager:
@@ -19,8 +18,8 @@ class ChannelLockManager:
             cleanup_threshold_sec: Time in seconds after which unused locks are removed.
                                    Default is 1 hour.
         """
-        self._locks: Dict[str, asyncio.Lock] = {}
-        self._last_used: Dict[str, float] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._last_used: dict[str, float] = {}
         self._cleanup_threshold = cleanup_threshold_sec
         self._last_cleanup = time.monotonic()
         self._cleanup_interval = 600.0  # Run cleanup every 10 minutes
@@ -68,7 +67,7 @@ class ChannelLockManager:
                 del self._locks[key]
                 del self._last_used[key]
     
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Get current statistics about lock usage.
         
         Returns:

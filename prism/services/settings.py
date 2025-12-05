@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .db import Database
 
@@ -10,7 +10,7 @@ from .db import Database
 log = logging.getLogger(__name__)
 
 
-DEFAULT_SETTINGS: Dict[str, Any] = {
+DEFAULT_SETTINGS: dict[str, Any] = {
     "default_persona": "default",
 }
 
@@ -19,7 +19,7 @@ class SettingsService:
     def __init__(self, db: Database) -> None:
         self.db = db
 
-    async def get(self, guild_id: int) -> Dict[str, Any]:
+    async def get(self, guild_id: int) -> dict[str, Any]:
         # Use INSERT OR IGNORE to atomically create default settings if they don't exist
         # This prevents race conditions when multiple requests check simultaneously
         await self.db.execute(
@@ -45,7 +45,7 @@ class SettingsService:
             data.setdefault(k, v if not isinstance(v, dict) else v.copy())
         return data
 
-    async def set(self, guild_id: int, data: Dict[str, Any]) -> None:
+    async def set(self, guild_id: int, data: dict[str, Any]) -> None:
         payload = json.dumps(data)
         await self.db.execute(
             "INSERT INTO settings (guild_id, data_json) VALUES (?, ?)\n"
@@ -53,7 +53,7 @@ class SettingsService:
             (str(guild_id), payload),
         )
 
-    async def set_persona(self, guild_id: int, scope: str, target_id: Optional[int], persona_name: str) -> None:
+    async def set_persona(self, guild_id: int, scope: str, target_id: int | None, persona_name: str) -> None:
         # Scope simplified: always set guild-wide persona
         data = await self.get(guild_id)
         data["default_persona"] = persona_name

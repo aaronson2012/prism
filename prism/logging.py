@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import atexit
 import logging
 import os
 import sys
@@ -8,6 +11,7 @@ from datetime import datetime, timedelta
 
 
 _tee_installed = False
+_atexit_registered = False
 _console_log_file = None  # type: ignore[var-annotated]
 _console_date = None  # type: ignore[var-annotated]
 _console_logs_dir = None  # type: ignore[var-annotated]
@@ -61,6 +65,19 @@ def _ensure_console_file_for_today() -> None:
                 except Exception:
                     pass
     except Exception:
+        pass
+
+
+def close_console_log() -> None:
+    """Close the console log file handle properly during shutdown."""
+    global _console_log_file
+    try:
+        if _console_log_file is not None and hasattr(_console_log_file, "close"):
+            _console_log_file.flush()
+            _console_log_file.close()
+            _console_log_file = None
+    except Exception:
+        # Ignore errors during shutdown
         pass
 
 
@@ -142,7 +159,7 @@ def _pick_logs_dir() -> str:
 
 
 def setup_logging(level: str = "INFO") -> None:
-    global _tee_installed, _console_logs_dir, _console_retention_days, _orig_excepthook, _orig_stdout, _orig_stderr
+    global _tee_installed, _console_logs_dir, _console_retention_days, _orig_excepthook, _orig_stdout, _orig_stderr, _atexit_registered
 
     logs_dir = _pick_logs_dir()
 
@@ -166,6 +183,11 @@ def setup_logging(level: str = "INFO") -> None:
             _tee_installed = True
         except Exception:
             _tee_installed = False
+
+    # Register atexit handler to close console log file on shutdown
+    if not _atexit_registered:
+        atexit.register(close_console_log)
+        _atexit_registered = True
 
     root = logging.getLogger()
     root.setLevel(level.upper())

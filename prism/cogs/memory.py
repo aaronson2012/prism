@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import List
 
 import discord
 from discord.commands import SlashCommandGroup, option
@@ -31,7 +30,7 @@ class MemoryCog(discord.Cog):
             await ctx.respond("No memory stored for this channel yet.")
             return
         # Build a compact view under Discord 2000-char limit
-        lines: List[str] = []
+        lines: list[str] = []
         for m in to_show:
             role = m.get("role", "?")
             content = (m.get("content", "") or "").strip()

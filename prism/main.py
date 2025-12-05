@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import Tuple
 import os
+import socket
 
 from .config import load_config
 from .logging import setup_logging
@@ -24,8 +24,13 @@ log = logging.getLogger(__name__)
 DISCORD_MESSAGE_LIMIT = 2000
 _CUSTOM_EMOJI_PATTERN = re.compile(r"<a?:[^:>]+:\d+>")
 
+# Startup retry configuration
+_STARTUP_MAX_RETRIES = 5
+_STARTUP_INITIAL_DELAY = 5.0  # seconds
+_STARTUP_MAX_DELAY = 60.0  # seconds
 
-def _clip_reply_to_limit(text: str) -> Tuple[str, bool]:
+
+def _clip_reply_to_limit(text: str) -> tuple[str, bool]:
     """Ensure replies respect Discord's 2000-character limit by silently truncating if needed."""
     if len(text) <= DISCORD_MESSAGE_LIMIT:
         return text, False
@@ -180,8 +185,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                 s2type = s2.__class__.__name__
                                 s2gids = getattr(s2, "guild_ids", None)
                                 log.debug("    SUB2 %s (%s) guild_ids=%s", s2name, s2type, s2gids)
-                    except Exception:
-                        pass
+                    except Exception as _ce:
+                        log.debug("Error logging command %s: %s", getattr(c, 'name', '?'), _ce)
             except Exception as _e:
                 log.debug("command tree logging failed: %s", _e)
         # Fast-sync slash commands to specific guilds if configured
@@ -192,7 +197,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                 await bot.sync_commands(guild_ids=gids, force=True, method='auto')  # type: ignore[arg-type]
                 try:
                     count = len(getattr(bot, "application_commands", []) or [])
-                except Exception:
+                except Exception as _e:
+                    log.debug("Failed to get command count: %s", _e)
                     count = 0
                 log.info("Synced %d commands to guilds: %s", count, ",".join(str(g) for g in gids))
                 _log_command_tree("After sync")
@@ -295,6 +301,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
         lock = bot.prism_channel_locks.get_lock(message.channel.id)  # type: ignore[attr-defined]
         async with lock:
             async def _generate_and_reply() -> None:
+                # Initialize cmeta early so it's available for emoji enforcement later
+                cmeta: list[dict] = []
                 persona_name = await bot.prism_settings.resolve_persona_name(message.guild.id, message.channel.id, message.author.id)
                 persona = await bot.prism_personas.get(persona_name)
                 if not persona:
@@ -321,8 +329,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                 cmeta = fallback
                                 if fallback:
                                     log.debug("Emoji fallback candidates from guild: %s", " ".join([m['token'] for m in fallback]))
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("Emoji fallback from guild.emojis failed: %s", _e)
                         if cmeta:
                             # Avoid repeating the same custom tokens in this channel recently
                             recent_custom: set[str] = set()
@@ -360,8 +368,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                     len([1 for m in show if not str(m.get('token','')).startswith('<')]),
                                     " ".join(cands),
                                 )
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("Emoji candidate logging failed: %s", _e)
                             system_prompt += "\nEmoji candidates: " + " ".join(cands)
                             # Provide titles so the model knows what each token represents
                             titles = "; ".join(f"{m['token']} = {m.get('name') or 'emoji'}" for m in show)
@@ -376,8 +384,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                 ex_tokens = [m["token"] for m in custom_meta[:2] if m.get("token")]
                                 if ex_tokens:
                                     system_prompt += "\nExample usage: That works great " + " ".join(ex_tokens)
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("Example emoji tokens generation failed: %s", _e)
                             # When user explicitly asks about emojis, include short details for a few top candidates
                             if is_emoji_request:
                                 details = []
@@ -405,14 +413,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                     if cfg.emoji_talk_enabled:  # type: ignore[attr-defined]
                         no_emoji_requested = any(w in content.lower() for w in ["no emoji", "no emojis", "without emoji", "without emojis"])
                         if not no_emoji_requested and reply:
-                            try:
-                                custom_tokens = [m.get("token") for m in (locals().get("cmeta") or []) if str(m.get("token", "")).startswith("<")]
-                            except Exception:
-                                custom_tokens = []
-                            try:
-                                unicode_tokens = [m.get("token") for m in (locals().get("cmeta") or []) if m.get("token") and not str(m.get("token")).startswith("<")]
-                            except Exception:
-                                unicode_tokens = []
+                            custom_tokens = [m.get("token") for m in cmeta if str(m.get("token", "")).startswith("<")]
+                            unicode_tokens = [m.get("token") for m in cmeta if m.get("token") and not str(m.get("token")).startswith("<")]
                             
                             # If model forgot custom emojis, add at least one
                             if custom_tokens and ("<:" not in reply and "<a:" not in reply):
@@ -448,7 +450,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
             try:
                 async with message.channel.typing():
                     await _generate_and_reply()
-            except Exception:
+            except Exception as _e:
+                log.debug("Typing indicator failed, generating reply without it: %s", _e)
                 await _generate_and_reply()
 
     # No /ping command per current requirements
@@ -539,28 +542,57 @@ async def amain() -> None:
     except Exception:
         pass
 
+    # Startup with retry logic for transient network errors
+    retry_count = 0
+    delay = _STARTUP_INITIAL_DELAY
     try:
-        log.info("Logging in to Discord...")
-        await bot.start(cfg.discord_token)
-    except KeyboardInterrupt:  # graceful Ctrl-C
-        log.info("Received Ctrl-C, shutting down gracefully...")
-        try:
-            await bot.close()
-            # Give aiohttp time to finish cleanup tasks to avoid "Unclosed client session" warnings
-            await asyncio.sleep(0.25)
-        except Exception:  # noqa: BLE001
-            pass
-    except asyncio.CancelledError:
-        log.info("Cancelled, shutting down gracefully...")
-        try:
-            await bot.close()
-            # Give aiohttp time to finish cleanup tasks to avoid "Unclosed client session" warnings
-            await asyncio.sleep(0.25)
-        except Exception:  # noqa: BLE001
-            pass
-    except Exception as e:  # noqa: BLE001
-        log.exception("Bot failed to start: %s", e)
-        raise
+        while True:
+            try:
+                log.info("Logging in to Discord...")
+                await bot.start(cfg.discord_token)
+                break  # Clean exit (bot.close() was called)
+            except KeyboardInterrupt:  # graceful Ctrl-C
+                log.info("Received Ctrl-C, shutting down gracefully...")
+                try:
+                    await bot.close()
+                    # Give aiohttp time to finish cleanup tasks to avoid "Unclosed client session" warnings
+                    await asyncio.sleep(0.25)
+                except Exception:  # noqa: BLE001
+                    pass
+                break
+            except asyncio.CancelledError:
+                log.info("Cancelled, shutting down gracefully...")
+                try:
+                    await bot.close()
+                    # Give aiohttp time to finish cleanup tasks to avoid "Unclosed client session" warnings
+                    await asyncio.sleep(0.25)
+                except Exception:  # noqa: BLE001
+                    pass
+                break
+            except (socket.gaierror, OSError) as e:
+                # Network/DNS errors - retry with backoff
+                retry_count += 1
+                if retry_count > _STARTUP_MAX_RETRIES:
+                    log.error("Bot failed to start after %d retries: %s", _STARTUP_MAX_RETRIES, e)
+                    raise
+                log.warning("Network error during startup (attempt %d/%d): %s. Retrying in %.1f seconds...",
+                           retry_count, _STARTUP_MAX_RETRIES, e, delay)
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, _STARTUP_MAX_DELAY)  # Exponential backoff with cap
+            except Exception as e:  # noqa: BLE001
+                # Check if it's a wrapped network error (aiohttp wraps socket errors)
+                if "Temporary failure in name resolution" in str(e) or "getaddrinfo failed" in str(e):
+                    retry_count += 1
+                    if retry_count > _STARTUP_MAX_RETRIES:
+                        log.error("Bot failed to start after %d retries: %s", _STARTUP_MAX_RETRIES, e)
+                        raise
+                    log.warning("Network error during startup (attempt %d/%d): %s. Retrying in %.1f seconds...",
+                               retry_count, _STARTUP_MAX_RETRIES, e, delay)
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, _STARTUP_MAX_DELAY)
+                else:
+                    log.exception("Bot failed to start: %s", e)
+                    raise
     finally:
         # Close external resources regardless of exit path
         try:

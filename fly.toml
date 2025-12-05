@@ -1,0 +1,18 @@
+app = "prism-discord-bot"
+primary_region = "iad"
+
+[build]
+
+[env]
+  PRISM_DB_PATH = "/data/prism.db"
+  LOG_LEVEL = "INFO"
+
+[mounts]
+  source = "prism_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpus = 1
+

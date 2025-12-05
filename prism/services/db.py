@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable
 
 import aiosqlite
 
@@ -59,7 +59,7 @@ class Database:
         # If explicit transactions are needed in the future, use begin/commit/rollback explicitly
         await self.conn.commit()
 
-    async def fetchone(self, sql: str, params: Iterable[Any] = ()) -> Optional[aiosqlite.Row]:
+    async def fetchone(self, sql: str, params: Iterable[Any] = ()) -> aiosqlite.Row | None:
         async with self.conn.execute(sql, tuple(params)) as cur:
             row = await cur.fetchone()
             return row

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
 from .db import Database
 
@@ -16,12 +15,12 @@ def estimate_tokens(text: str) -> int:
 
 @dataclass
 class Message:
-    guild_id: Optional[int]
-    channel_id: Optional[int]
-    user_id: Optional[int]
+    guild_id: int | None
+    channel_id: int | None
+    user_id: int | None
     role: str  # system|user|assistant
     content: str
-    token_estimate: Optional[int] = None
+    token_estimate: int | None = None
 
 
 class MemoryService:
@@ -49,7 +48,7 @@ class MemoryService:
         channel_id: int,
         budget_tokens: int = 0,
         max_messages: int = 100,
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """
         Return the last N messages for the channel, oldest-first.
         The budget_tokens parameter is ignored; we always return up to max_messages (default 100).

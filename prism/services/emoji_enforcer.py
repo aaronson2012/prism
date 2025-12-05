@@ -6,13 +6,12 @@ in bot responses to ensure engaging, non-repetitive emoji usage.
 from __future__ import annotations
 
 import re
-from typing import List, Optional
 
 # Cache emoji library availability at module level for performance
-_EMOJI_LIB: Optional[object] = None
+_EMOJI_LIB: object | None = None
 _EMOJI_LIB_CHECKED = False
 
-def _get_emoji_lib() -> Optional[object]:
+def _get_emoji_lib() -> object | None:
     """Get cached emoji library or None if not available."""
     global _EMOJI_LIB, _EMOJI_LIB_CHECKED
     if not _EMOJI_LIB_CHECKED:
@@ -44,8 +43,8 @@ def has_emoji(text: str) -> bool:
 
 def ensure_emoji_per_sentence(
     text: str,
-    custom_tokens: List[str],
-    unicode_tokens: List[str],
+    custom_tokens: list[str],
+    unicode_tokens: list[str],
     max_length: int = 1900
 ) -> str:
     """Ensure each sentence has at least one emoji.
@@ -201,8 +200,8 @@ def declump_unicode_emojis(text: str) -> str:
 
 def enforce_emoji_distribution(
     text: str,
-    custom_tokens: List[str],
-    unicode_tokens: List[str],
+    custom_tokens: list[str],
+    unicode_tokens: list[str],
     max_length: int = 1900
 ) -> str:
     """Apply complete emoji enforcement pipeline.
@@ -244,7 +243,7 @@ def enforce_emoji_distribution(
     return result
 
 
-def fallback_add_custom_emoji(text: str, custom_tokens: List[str]) -> str:
+def fallback_add_custom_emoji(text: str, custom_tokens: list[str]) -> str:
     """Add at least one custom emoji if none present.
     
     Adds the first available custom emoji after the first sentence.
