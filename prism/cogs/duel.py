@@ -615,8 +615,8 @@ class DuelCog(discord.Cog):
             )
 
             if emoji_to_use:
-                # Add a human-like delay before reacting (1-3 seconds)
-                await asyncio.sleep(random.uniform(1.0, 3.0))
+                # Add a human-like delay before reacting (2-6 seconds)
+                await asyncio.sleep(random.uniform(2.0, 6.0))
                 # Add the reaction
                 await message.add_reaction(emoji_to_use)
                 # Track the used reaction

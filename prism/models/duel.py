@@ -8,10 +8,10 @@ from enum import Enum
 from typing import Any
 
 
-# Typing simulation constants
-TYPING_BASE_DELAY = 1.5  # Base delay in seconds
-TYPING_DELAY_PER_CHAR = 0.02  # Additional delay per character
-TYPING_MAX_DELAY = 8.0  # Maximum delay cap in seconds
+# Typing simulation constants (2x for more natural pacing)
+TYPING_BASE_DELAY = 3.0  # Base delay in seconds
+TYPING_DELAY_PER_CHAR = 0.04  # Additional delay per character
+TYPING_MAX_DELAY = 16.0  # Maximum delay cap in seconds
 
 
 # Neutral judge system prompt for evaluating duel outcomes

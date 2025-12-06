@@ -594,45 +594,45 @@ class TestTypingDelayCalculation:
     """Tests for typing delay calculation function."""
 
     def test_delay_calculation_scales_with_message_length(self):
-        """Test delay increases with message length at 0.02 seconds per character."""
-        # Short message (10 chars): base 1.5 + 10 * 0.02 = 1.7 seconds
+        """Test delay increases with message length at 0.04 seconds per character."""
+        # Short message (11 chars): base 3.0 + 11 * 0.04 = 3.44 seconds
         short_delay = calculate_typing_delay("Hello World")  # 11 chars
-        assert short_delay == pytest.approx(1.5 + 11 * 0.02, rel=0.01)
+        assert short_delay == pytest.approx(3.0 + 11 * 0.04, rel=0.01)
 
-        # Medium message (100 chars): base 1.5 + 100 * 0.02 = 3.5 seconds
+        # Medium message (100 chars): base 3.0 + 100 * 0.04 = 7.0 seconds
         medium_msg = "A" * 100
         medium_delay = calculate_typing_delay(medium_msg)
-        assert medium_delay == pytest.approx(1.5 + 100 * 0.02, rel=0.01)
+        assert medium_delay == pytest.approx(3.0 + 100 * 0.04, rel=0.01)
 
-        # Long message (200 chars): base 1.5 + 200 * 0.02 = 5.5 seconds
+        # Long message (200 chars): base 3.0 + 200 * 0.04 = 11.0 seconds
         long_msg = "B" * 200
         long_delay = calculate_typing_delay(long_msg)
-        assert long_delay == pytest.approx(1.5 + 200 * 0.02, rel=0.01)
+        assert long_delay == pytest.approx(3.0 + 200 * 0.04, rel=0.01)
 
         # Verify scaling: longer messages have longer delays
         assert short_delay < medium_delay < long_delay
 
-    def test_delay_capped_at_8_seconds_maximum(self):
-        """Test delay is capped at 8 seconds for very long messages."""
-        # Very long message (500 chars): would be 1.5 + 500 * 0.02 = 11.5s, but capped at 8s
+    def test_delay_capped_at_16_seconds_maximum(self):
+        """Test delay is capped at 16 seconds for very long messages."""
+        # Very long message (500 chars): would be 3.0 + 500 * 0.04 = 23s, but capped at 16s
         very_long_msg = "C" * 500
         delay = calculate_typing_delay(very_long_msg)
-        assert delay == 8.0
+        assert delay == 16.0
 
-        # Extremely long message (1000 chars): still capped at 8s
+        # Extremely long message (1000 chars): still capped at 16s
         extremely_long_msg = "D" * 1000
         delay = calculate_typing_delay(extremely_long_msg)
-        assert delay == 8.0
+        assert delay == 16.0
 
     def test_base_delay_for_short_messages(self):
-        """Test base delay of 1.5 seconds for very short or empty messages."""
+        """Test base delay of 3.0 seconds for very short or empty messages."""
         # Empty message: base delay only
         empty_delay = calculate_typing_delay("")
-        assert empty_delay == 1.5
+        assert empty_delay == 3.0
 
-        # Single character: 1.5 + 1 * 0.02 = 1.52 seconds
+        # Single character: 3.0 + 1 * 0.04 = 3.04 seconds
         single_char_delay = calculate_typing_delay("A")
-        assert single_char_delay == pytest.approx(1.52, rel=0.01)
+        assert single_char_delay == pytest.approx(3.04, rel=0.01)
 
 
 class TestTypingSimulationWrapper:
@@ -669,7 +669,7 @@ class TestTypingSimulationWrapper:
             mock_typing_context.__aenter__.assert_called_once()
 
             # Verify sleep was called with calculated delay
-            expected_delay = 1.5 + len(test_message) * 0.02
+            expected_delay = 3.0 + len(test_message) * 0.04
             mock_sleep.assert_called_once()
             actual_delay = mock_sleep.call_args[0][0]
             assert actual_delay == pytest.approx(expected_delay, rel=0.01)
