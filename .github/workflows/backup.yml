@@ -89,7 +89,8 @@ jobs:
           file = service.files().create(
               body=file_metadata,
               media_body=media,
-              fields="id, name"
+              fields="id, name",
+              supportsAllDrives=True
           ).execute()
 
           print(f"Uploaded {file.get('name')} with ID: {file.get('id')}")
