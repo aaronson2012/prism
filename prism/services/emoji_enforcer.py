@@ -26,10 +26,13 @@ def _get_emoji_lib() -> object | None:
 
 def has_emoji(text: str) -> bool:
     """Check if text contains any emoji (Unicode or custom Discord emoji)."""
+    if not text:
+        return False
+
     # Check for custom Discord emoji
     if re.search(r"<a?:[A-Za-z0-9_]+:\d+>", text):
         return True
-    
+
     # Check for Unicode emoji using cached emoji library
     emoji_lib = _get_emoji_lib()
     if emoji_lib and hasattr(emoji_lib, "emoji_list"):
@@ -37,7 +40,24 @@ def has_emoji(text: str) -> bool:
             return bool(emoji_lib.emoji_list(text))
         except Exception:
             pass
-    
+
+    # Fallback: check for common emoji Unicode ranges if library unavailable
+    # This catches basic emojis even without the emoji library
+    for char in text:
+        code = ord(char)
+        # Common emoji ranges
+        if (0x1F600 <= code <= 0x1F64F or  # Emoticons
+            0x1F300 <= code <= 0x1F5FF or  # Misc Symbols and Pictographs
+            0x1F680 <= code <= 0x1F6FF or  # Transport and Map
+            0x1F1E0 <= code <= 0x1F1FF or  # Flags
+            0x2600 <= code <= 0x26FF or    # Misc symbols
+            0x2700 <= code <= 0x27BF or    # Dingbats
+            0xFE00 <= code <= 0xFE0F or    # Variation Selectors
+            0x1F900 <= code <= 0x1F9FF or  # Supplemental Symbols
+            0x1FA00 <= code <= 0x1FA6F or  # Chess Symbols, Extended-A
+            0x1FA70 <= code <= 0x1FAFF):   # Symbols Extended-A
+            return True
+
     return False
 
 
@@ -82,10 +102,12 @@ def ensure_emoji_per_sentence(
                 elif unicode_tokens:
                     tok = unicode_tokens[idx_utok % len(unicode_tokens)]
                     idx_utok += 1
-                
+
                 if tok:
-                    # Append before trailing whitespace
-                    s = s.rstrip() + " " + tok + (" " if s.endswith(" ") else "")
+                    # Check for trailing whitespace before stripping
+                    had_trailing_space = s.endswith(" ")
+                    # Append emoji after content, preserving trailing space if present
+                    s = s.rstrip() + " " + tok + (" " if had_trailing_space else "")
             out_parts.append(s)
         else:
             out_parts.append(seg)
@@ -117,33 +139,54 @@ def deduplicate_custom_emojis(text: str) -> str:
 
 def deduplicate_unicode_emojis(text: str) -> str:
     """Remove duplicate Unicode emojis, keeping only first occurrence.
-    
+
+    Handles multi-codepoint emojis (ZWJ sequences, skin tone modifiers, etc.)
+    by using emoji_list() to find complete emoji sequences.
+
     Args:
         text: Text containing Unicode emojis
-        
+
     Returns:
         Text with duplicate Unicode emojis removed
     """
     emoji_lib = _get_emoji_lib()
-    if not emoji_lib or not hasattr(emoji_lib, "is_emoji"):
+    if not emoji_lib or not hasattr(emoji_lib, "emoji_list"):
         return text
-    
-    seen_uni: set[str] = set()
-    chars = list(text)
-    i = 0
-    while i < len(chars):
-        ch = chars[i]
-        try:
-            if emoji_lib.is_emoji(ch):
-                if ch in seen_uni:
-                    del chars[i]
-                    continue
-                seen_uni.add(ch)
-        except Exception:
-            # Ignore exceptions from emoji library; skip problematic character.
-            pass
-        i += 1
-    return "".join(chars)
+
+    try:
+        emoji_matches = emoji_lib.emoji_list(text)
+    except Exception:
+        return text
+
+    if not emoji_matches:
+        return text
+
+    # Build result by processing text segments and emojis
+    seen_emojis: set[str] = set()
+    result_parts: list[str] = []
+    last_end = 0
+
+    for match in emoji_matches:
+        # Add text before this emoji
+        start = match.get("match_start", 0)
+        end = match.get("match_end", start)
+        emoji_str = match.get("emoji", "")
+
+        if start > last_end:
+            result_parts.append(text[last_end:start])
+
+        # Only include emoji if not seen before
+        if emoji_str and emoji_str not in seen_emojis:
+            result_parts.append(emoji_str)
+            seen_emojis.add(emoji_str)
+
+        last_end = end
+
+    # Add remaining text after last emoji
+    if last_end < len(text):
+        result_parts.append(text[last_end:])
+
+    return "".join(result_parts)
 
 
 def declump_custom_emojis(text: str) -> str:
@@ -170,32 +213,63 @@ def declump_custom_emojis(text: str) -> str:
 
 def declump_unicode_emojis(text: str) -> str:
     """Remove consecutive Unicode emoji characters.
-    
+
+    Handles multi-codepoint emojis (ZWJ sequences, skin tone modifiers, etc.)
+    by using emoji_list() to find complete emoji sequences.
+
     Args:
         text: Text with potential Unicode emoji clusters
-        
+
     Returns:
         Text with consecutive Unicode emojis removed
     """
     emoji_lib = _get_emoji_lib()
-    if not emoji_lib or not hasattr(emoji_lib, "is_emoji"):
+    if not emoji_lib or not hasattr(emoji_lib, "emoji_list"):
         return text
-    
-    out_chars = []
-    prev_was_emoji = False
-    for ch in text:
-        try:
-            is_e = emoji_lib.is_emoji(ch)
-        except Exception:
-            is_e = False
-        
-        if is_e and prev_was_emoji:
-            continue
-        
-        out_chars.append(ch)
-        prev_was_emoji = is_e
-    
-    return "".join(out_chars)
+
+    try:
+        emoji_matches = emoji_lib.emoji_list(text)
+    except Exception:
+        return text
+
+    if not emoji_matches:
+        return text
+
+    # Build result, skipping emojis that immediately follow another emoji
+    result_parts: list[str] = []
+    last_end = 0
+    prev_emoji_end: int | None = None
+
+    for match in emoji_matches:
+        start = match.get("match_start", 0)
+        end = match.get("match_end", start)
+        emoji_str = match.get("emoji", "")
+
+        # Add text between previous position and this emoji
+        if start > last_end:
+            result_parts.append(text[last_end:start])
+            # Reset: there's text between emojis, so not consecutive
+            prev_emoji_end = None
+
+        # Check if this emoji immediately follows previous emoji (consecutive)
+        # We consider emojis consecutive if only whitespace separates them
+        is_consecutive = False
+        if prev_emoji_end is not None:
+            between = text[prev_emoji_end:start]
+            if not between or between.isspace():
+                is_consecutive = True
+
+        if not is_consecutive:
+            result_parts.append(emoji_str)
+
+        prev_emoji_end = end
+        last_end = end
+
+    # Add remaining text after last emoji
+    if last_end < len(text):
+        result_parts.append(text[last_end:])
+
+    return "".join(result_parts)
 
 
 def enforce_emoji_distribution(

@@ -85,7 +85,28 @@ class PersonasService:
                     continue
                 slug = self._slug(name)
                 display = disp or self._title_from_slug(slug)
-                model = PersonaModel(name=slug, display_name=display, description=desc, system_prompt=sys_prompt)
+                # Read optional model and temperature from TOML
+                model_name = tdata.get("model")
+                if model_name is not None:
+                    model_name = str(model_name).strip() or None
+                temperature = tdata.get("temperature")
+                if temperature is not None:
+                    try:
+                        temperature = float(temperature)
+                    except (ValueError, TypeError):
+                        temperature = None
+                style = tdata.get("style")
+                if style is not None:
+                    style = str(style).strip() or None
+                model = PersonaModel(
+                    name=slug,
+                    display_name=display,
+                    description=desc,
+                    system_prompt=sys_prompt,
+                    model=model_name,
+                    temperature=temperature,
+                    style=style,
+                )
                 rec = PersonaRecord(name=model.name.lower(), source="builtin", data=model, path=path)
                 self._builtins[rec.name] = rec
                 # Auto-migrate: if file lacks display_name, persist it

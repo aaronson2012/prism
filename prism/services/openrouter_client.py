@@ -100,7 +100,7 @@ class OpenRouterClient:
 
         resp = await self._client.post("/chat/completions", content=json.dumps(payload))
         request_id = resp.headers.get("x-request-id")
-        data: Dict[str, Any] | None = None
+        data: dict[str, Any] | None = None
         try:
             data = resp.json()
         except json.JSONDecodeError:
@@ -110,20 +110,33 @@ class OpenRouterClient:
                 log.error("OpenRouter returned non-JSON response, status=%s id=%s body=%s", resp.status_code, request_id, response_text)
             except Exception:
                 log.error("OpenRouter returned non-JSON response, status=%s id=%s (could not read body)", resp.status_code, request_id)
-            resp.raise_for_status()
+            # Don't call raise_for_status as it may mask the real issue
             raise OpenRouterError(f"Invalid JSON from OpenRouter (status={resp.status_code})")
 
         if resp.status_code >= 400:
             # Provide meaningful error details.
             if data is None:
                 raise OpenRouterError(f"OpenRouter error {resp.status_code}: No response data")
-            message = data.get("error", {}).get("message") or data.get("message") or str(data)[:200]
+            error_obj = data.get("error") if isinstance(data.get("error"), dict) else {}
+            message = error_obj.get("message") or data.get("message") or str(data)[:200]
             raise OpenRouterError(f"OpenRouter error {resp.status_code}: {message}")
 
+        # Validate response structure
+        if not data:
+            raise OpenRouterError("Empty response from OpenRouter")
+
+        choices = data.get("choices")
+        if not choices or not isinstance(choices, list) or len(choices) == 0:
+            raise OpenRouterError(f"Malformed response from OpenRouter: missing choices: {data}")
+
         try:
-            choice = data["choices"][0]
-            text = choice["message"]["content"]
-        except Exception as exc:  # noqa: BLE001
+            choice = choices[0]
+            message_obj = choice.get("message") or {}
+            text = message_obj.get("content") or ""
+            # Ensure text is a string (some APIs return None or other types)
+            if not isinstance(text, str):
+                text = str(text) if text is not None else ""
+        except (KeyError, TypeError, IndexError) as exc:
             raise OpenRouterError(f"Malformed response from OpenRouter: {data}") from exc
 
         meta = {

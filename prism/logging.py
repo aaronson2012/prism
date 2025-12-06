@@ -37,10 +37,16 @@ def _ensure_console_file_for_today() -> None:
         return
     today = datetime.now().strftime("%Y-%m-%d")
     if _console_date != today or _console_log_file is None:
-        # Close previous file
+        # Close previous file properly
+        old_file = _console_log_file
+        _console_log_file = None  # Clear reference before closing
         try:
-            if _console_log_file and hasattr(_console_log_file, "close"):
-                _console_log_file.close()
+            if old_file is not None and hasattr(old_file, "close"):
+                try:
+                    old_file.flush()
+                except Exception:
+                    pass
+                old_file.close()
         except Exception:
             pass
         # Open new file for today

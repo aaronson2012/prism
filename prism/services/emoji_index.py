@@ -126,7 +126,10 @@ class EmojiIndexService:
             # Ensure we keep a few custom options even without direct keyword match
             if score <= 0:
                 score = 0.01
-            token = f"<{'a' if ce.animated else ''}:{ce.name}:{ce.emoji_id}>" if ce.name else f":{ce.emoji_id}:"
+            # Skip emojis without a name as they can't be rendered in Discord
+            if not ce.name:
+                continue
+            token = f"<{'a' if ce.animated else ''}:{ce.name}:{ce.emoji_id}>"
             custom_scored.append((score, {"token": token, "name": ce.name, "description": ce.description or ""}))
         custom_scored.sort(key=lambda x: x[0], reverse=True)
 
@@ -154,6 +157,8 @@ class EmojiIndexService:
         # If user explicitly asked about emojis but nothing matched, include some custom anyway
         if len(merged) < limit and any(t in {"emoji", "emojis", "custom", "customs"} for t in text_tokens):
             for ce in custom:
+                if not ce.name:
+                    continue
                 tok = f"<{'a' if ce.animated else ''}:{ce.name}:{ce.emoji_id}>"
                 if all(tok != m["token"] for m in merged):
                     merged.append({"token": tok, "name": ce.name, "description": ce.description or ""})
@@ -188,16 +193,20 @@ class EmojiIndexService:
         out: list[CustomEmoji] = []
         for r in rows:
             try:
+                # Skip rows with missing emoji_id or name - they can't be rendered
+                if r[0] is None or r[1] is None:
+                    continue
                 out.append(
                     CustomEmoji(
                         guild_id=guild_id,
-                        emoji_id=int(r[0]) if r[0] is not None else 0,
-                        name=str(r[1] or ""),
+                        emoji_id=int(r[0]),
+                        name=str(r[1]),
                         animated=bool(r[2] or 0),
                         description=(r[3] or None),
                     )
                 )
-            except Exception:
+            except (ValueError, TypeError):
+                # Skip invalid rows (e.g., non-numeric emoji_id)
                 continue
         return out
 
@@ -290,8 +299,16 @@ class EmojiIndexService:
         return self._unicode_index
 
 
-def _tokenize(text: str) -> list[str]:
-    if not text:
+def _tokenize(text: str | None) -> list[str]:
+    """Tokenize text into lowercase word tokens.
+
+    Args:
+        text: Text to tokenize, or None
+
+    Returns:
+        List of lowercase word tokens
+    """
+    if not text or not isinstance(text, str):
         return []
     return [t.lower() for t in _WORD_RE.findall(text) if t]
 

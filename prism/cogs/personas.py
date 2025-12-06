@@ -184,7 +184,10 @@ class PersonaCog(discord.Cog):
             log.exception("Unexpected error editing persona")
             await ctx.respond(f"Failed to edit persona: {e}")
             return
-        friendly = (await self.bot.prism_personas.get(name)).data.display_name if await self.bot.prism_personas.get(name) else None  # type: ignore[attr-defined]
+        rec = await self.bot.prism_personas.get(name)
+        friendly = None
+        if rec is not None:
+            friendly = (rec.data.display_name or "").strip()
         if not friendly:
             parts = re.split(r"[-_\s]+", (name or "").strip())
             friendly = " ".join(w.capitalize() for w in parts if w)
@@ -205,22 +208,18 @@ class PersonaCog(discord.Cog):
 
 
 def setup(bot: discord.Bot):
-    try:
-        gids = getattr(getattr(bot, "prism_cfg", None), "command_guild_ids", None)
-        if gids:
-            try:
-                PersonaCog.persona.guild_ids = gids  # type: ignore[attr-defined]
-                for sc in getattr(PersonaCog.persona, "subcommands", []) or []:
-                    try:
-                        setattr(sc, "guild_ids", gids)
-                    except Exception:
-                        pass
+    """Setup the PersonaCog and optionally scope commands to specific guilds."""
+    gids = getattr(getattr(bot, "prism_cfg", None), "command_guild_ids", None)
+    if gids:
+        try:
+            PersonaCog.persona.guild_ids = gids  # type: ignore[attr-defined]
+            for sc in getattr(PersonaCog.persona, "subcommands", []) or []:
                 try:
-                    log.info("persona commands scoped to guilds: %s", ",".join(str(g) for g in gids))
-                except Exception:
+                    setattr(sc, "guild_ids", gids)
+                except AttributeError:
+                    # Some subcommand types may not support guild_ids
                     pass
-            except Exception:
-                pass
-    except Exception:
-        pass
+            log.info("persona commands scoped to guilds: %s", ",".join(str(g) for g in gids))
+        except Exception:
+            log.warning("Failed to scope persona commands to guilds", exc_info=True)
     bot.add_cog(PersonaCog(bot))

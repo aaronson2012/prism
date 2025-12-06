@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from typing import Any
@@ -40,9 +41,10 @@ class SettingsService:
             log.warning("Failed to parse settings JSON for guild %s: %s", guild_id, e)
             data = DEFAULT_SETTINGS.copy()
         
-        # Ensure keys exist
+        # Ensure keys exist with proper deep copy for mutable defaults
         for k, v in DEFAULT_SETTINGS.items():
-            data.setdefault(k, v if not isinstance(v, dict) else v.copy())
+            if k not in data:
+                data[k] = copy.deepcopy(v) if isinstance(v, (dict, list)) else v
         return data
 
     async def set(self, guild_id: int, data: dict[str, Any]) -> None:

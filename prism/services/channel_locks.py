@@ -50,22 +50,28 @@ class ChannelLockManager:
     
     def _cleanup_old_locks(self, now: float) -> None:
         """Remove locks that haven't been used recently.
-        
+
         Args:
             now: Current monotonic time
         """
         to_remove = []
-        
-        for key, last_used in self._last_used.items():
+
+        for key, last_used in list(self._last_used.items()):
             if now - last_used >= self._cleanup_threshold:
                 to_remove.append(key)
-        
+
         for key in to_remove:
-            # Only remove if not currently locked
+            # Only remove if not currently locked and still in dict
+            # Use pop with default to handle concurrent modifications safely
             lock = self._locks.get(key)
-            if lock and not lock.locked():
-                del self._locks[key]
-                del self._last_used[key]
+            if lock is not None and not lock.locked():
+                # Double-check last_used hasn't been updated since we started cleanup
+                # This prevents removing a lock that was just accessed
+                current_last_used = self._last_used.get(key)
+                if current_last_used is not None and now - current_last_used >= self._cleanup_threshold:
+                    # Use pop to avoid KeyError if another coroutine removed it
+                    self._locks.pop(key, None)
+                    self._last_used.pop(key, None)
     
     def get_stats(self) -> dict[str, int]:
         """Get current statistics about lock usage.

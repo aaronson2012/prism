@@ -32,6 +32,9 @@ _STARTUP_MAX_DELAY = 60.0  # seconds
 
 def _clip_reply_to_limit(text: str) -> tuple[str, bool]:
     """Ensure replies respect Discord's 2000-character limit by silently truncating if needed."""
+    if not text:
+        return text, False
+
     if len(text) <= DISCORD_MESSAGE_LIMIT:
         return text, False
 
@@ -44,7 +47,7 @@ def _clip_reply_to_limit(text: str) -> tuple[str, bool]:
         truncated = truncated[:partial_idx].rstrip()
 
     # Close unfinished fenced code blocks if possible without exceeding the limit.
-    if truncated.count("```") % 2 == 1:
+    if truncated and truncated.count("```") % 2 == 1:
         closing = "\n```"
         if len(truncated) + len(closing) <= DISCORD_MESSAGE_LIMIT:
             truncated += closing
@@ -54,9 +57,13 @@ def _clip_reply_to_limit(text: str) -> tuple[str, bool]:
             if last_tick != -1:
                 truncated = truncated[:last_tick].rstrip()
 
-    # Final safety check: ensure we never exceed the limit
+    # Final safety check: ensure we never exceed the limit and handle empty result
     if len(truncated) > DISCORD_MESSAGE_LIMIT:
         truncated = truncated[:DISCORD_MESSAGE_LIMIT].rstrip()
+
+    # If truncation resulted in empty string, return a minimal message
+    if not truncated:
+        truncated = "(message truncated)"
 
     return truncated, True
 
@@ -523,13 +530,18 @@ async def amain() -> None:
     setup_memory(bot)
 
     # Install signal handlers for graceful shutdown (including SIGTERM)
+    shutdown_requested = False
     try:
         import signal
         loop = asyncio.get_running_loop()
         def _graceful_signal(sig_name: str) -> None:
+            nonlocal shutdown_requested
+            if shutdown_requested:
+                return  # Prevent double-handling
+            shutdown_requested = True
             try:
                 log.info("Received %s, requesting graceful shutdown...", sig_name)
-                # Request bot close
+                # Request bot close - the finally block will handle the rest
                 loop.create_task(bot.close())
             except Exception:
                 pass
@@ -553,21 +565,11 @@ async def amain() -> None:
                 break  # Clean exit (bot.close() was called)
             except KeyboardInterrupt:  # graceful Ctrl-C
                 log.info("Received Ctrl-C, shutting down gracefully...")
-                try:
-                    await bot.close()
-                    # Give aiohttp time to finish cleanup tasks to avoid "Unclosed client session" warnings
-                    await asyncio.sleep(0.25)
-                except Exception:  # noqa: BLE001
-                    pass
+                # Don't close here - let the finally block handle it
                 break
             except asyncio.CancelledError:
                 log.info("Cancelled, shutting down gracefully...")
-                try:
-                    await bot.close()
-                    # Give aiohttp time to finish cleanup tasks to avoid "Unclosed client session" warnings
-                    await asyncio.sleep(0.25)
-                except Exception:  # noqa: BLE001
-                    pass
+                # Don't close here - let the finally block handle it
                 break
             except (socket.gaierror, OSError) as e:
                 # Network/DNS errors - retry with backoff
@@ -598,8 +600,9 @@ async def amain() -> None:
         try:
             if not bot.is_closed():
                 await bot.close()
-                # Give aiohttp time to finish cleanup tasks to avoid "Unclosed client session" warnings
-                await asyncio.sleep(0.25)
+            # Give aiohttp time to finish cleanup tasks to avoid "Unclosed client session" warnings
+            # This needs to happen even if bot was already closed to let background tasks complete
+            await asyncio.sleep(0.5)
         except Exception:  # noqa: BLE001
             pass
         try:

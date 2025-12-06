@@ -53,22 +53,18 @@ class MemoryCog(discord.Cog):
 
 
 def setup(bot: discord.Bot):
-    try:
-        gids = getattr(getattr(bot, "prism_cfg", None), "command_guild_ids", None)
-        if gids:
-            try:
-                MemoryCog.memory.guild_ids = gids  # type: ignore[attr-defined]
-                for sc in getattr(MemoryCog.memory, "subcommands", []) or []:
-                    try:
-                        setattr(sc, "guild_ids", gids)
-                    except Exception:
-                        pass
+    """Setup the MemoryCog and optionally scope commands to specific guilds."""
+    gids = getattr(getattr(bot, "prism_cfg", None), "command_guild_ids", None)
+    if gids:
+        try:
+            MemoryCog.memory.guild_ids = gids  # type: ignore[attr-defined]
+            for sc in getattr(MemoryCog.memory, "subcommands", []) or []:
                 try:
-                    log.info("memory commands scoped to guilds: %s", ",".join(str(g) for g in gids))
-                except Exception:
+                    setattr(sc, "guild_ids", gids)
+                except AttributeError:
+                    # Some subcommand types may not support guild_ids
                     pass
-            except Exception:
-                pass
-    except Exception:
-        pass
+            log.info("memory commands scoped to guilds: %s", ",".join(str(g) for g in gids))
+        except Exception:
+            log.warning("Failed to scope memory commands to guilds", exc_info=True)
     bot.add_cog(MemoryCog(bot))
