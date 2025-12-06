@@ -13,6 +13,8 @@ log = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "default_persona": "default",
+    # DEPRECATED: Use UserPreferencesService for user-level response_length
+    # Kept here for guild-level fallback and migration compatibility
     "response_length": "balanced",
 }
 
@@ -88,8 +90,13 @@ class SettingsService:
                 continue
         return reset_count
 
+    # DEPRECATED: Use UserPreferencesService for user-level response_length
+    # These methods are kept for guild-level fallback and migration compatibility
     async def set_response_length(self, guild_id: int, length: str) -> None:
         """Set the response length preference for a guild.
+
+        DEPRECATED: Use UserPreferencesService for user-level response_length.
+        This method is kept for guild-level fallback and migration compatibility.
 
         Args:
             guild_id: The Discord guild ID
@@ -106,8 +113,13 @@ class SettingsService:
         data["response_length"] = length
         await self.set(guild_id, data)
 
+    # DEPRECATED: Use UserPreferencesService for user-level response_length
+    # This method is kept for guild-level fallback and migration compatibility
     async def resolve_response_length(self, guild_id: int) -> str:
         """Resolve the response length preference for a guild.
+
+        DEPRECATED: Use UserPreferencesService for user-level response_length.
+        This method is kept for guild-level fallback and migration compatibility.
 
         Args:
             guild_id: The Discord guild ID

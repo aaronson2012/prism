@@ -26,13 +26,29 @@ async def _migration_v1_placeholder(conn: aiosqlite.Connection) -> None:
 
 async def _migration_v2_add_messages_role_idx(conn: aiosqlite.Connection) -> None:
     """Add composite index on messages table for role-filtered queries.
-    
+
     This index optimizes queries like:
     SELECT content FROM messages WHERE guild_id = ? AND channel_id = ? AND role = 'assistant' ORDER BY id DESC
     """
     await conn.execute("""
-        CREATE INDEX IF NOT EXISTS messages_role_id_idx 
+        CREATE INDEX IF NOT EXISTS messages_role_id_idx
         ON messages(guild_id, channel_id, role, id DESC)
+    """)
+    await conn.commit()
+
+
+async def _migration_v3_create_user_preferences(conn: aiosqlite.Connection) -> None:
+    """Create user_preferences table for per-user preference storage.
+
+    This table stores user-level preferences (response length, emoji density,
+    preferred persona) that persist across sessions and guilds.
+    """
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            user_id TEXT PRIMARY KEY,
+            data_json TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     """)
     await conn.commit()
 
@@ -40,15 +56,16 @@ async def _migration_v2_add_messages_role_idx(conn: aiosqlite.Connection) -> Non
 MIGRATIONS: list[Migration] = [
     _migration_v1_placeholder,  # v1: Initial schema (applied from schema.sql)
     _migration_v2_add_messages_role_idx,  # v2: Add messages_role_id_idx
+    _migration_v3_create_user_preferences,  # v3: Add user_preferences table
 ]
 
 
 async def get_schema_version(conn: aiosqlite.Connection) -> int:
     """Get the current schema version from the database.
-    
+
     Args:
         conn: Database connection
-        
+
     Returns:
         Current schema version (0 if no version table exists)
     """
@@ -63,7 +80,7 @@ async def get_schema_version(conn: aiosqlite.Connection) -> int:
 
 async def set_schema_version(conn: aiosqlite.Connection, version: int) -> None:
     """Set the schema version in the database.
-    
+
     Args:
         conn: Database connection
         version: Version number to set
@@ -75,7 +92,7 @@ async def set_schema_version(conn: aiosqlite.Connection, version: int) -> None:
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
+
     # Update or insert version
     await conn.execute("DELETE FROM schema_version")
     await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
@@ -84,31 +101,31 @@ async def set_schema_version(conn: aiosqlite.Connection, version: int) -> None:
 
 async def apply_migrations(conn: aiosqlite.Connection, target_version: int | None = None) -> None:
     """Apply pending migrations to bring database up to date.
-    
+
     Args:
         conn: Database connection
         target_version: Target version to migrate to (None = latest)
     """
     current = await get_schema_version(conn)
-    
+
     if target_version is None:
         target_version = len(MIGRATIONS)
-    
+
     if target_version > len(MIGRATIONS):
         log.error("Requested target_version %d exceeds available migrations (%d)", target_version, len(MIGRATIONS))
         return
-    
+
     if current >= target_version:
         log.debug("Database schema is up to date (v%d)", current)
         return
-    
+
     log.info("Migrating database schema from v%d to v%d", current, target_version)
-    
+
     for version in range(current + 1, target_version + 1):
         # MIGRATIONS[version - 1] is safe because target_version <= len(MIGRATIONS)
         migration = MIGRATIONS[version - 1]
         log.info("Applying migration v%d...", version)
-        
+
         try:
             await migration(conn)
             await set_schema_version(conn, version)
@@ -120,9 +137,9 @@ async def apply_migrations(conn: aiosqlite.Connection, target_version: int | Non
 
 async def init_schema_version(conn: aiosqlite.Connection) -> None:
     """Initialize schema version tracking for existing database.
-    
+
     Call this after applying initial schema from schema.sql.
-    
+
     Args:
         conn: Database connection
     """
@@ -131,4 +148,3 @@ async def init_schema_version(conn: aiosqlite.Connection) -> None:
         # Fresh database - set to v1 (initial schema)
         await set_schema_version(conn, 1)
         log.info("Initialized schema version to v1")
-

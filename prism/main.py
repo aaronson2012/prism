@@ -17,6 +17,7 @@ from .services.emoji_index import EmojiIndexService
 from .services.emoji_enforcer import fallback_add_custom_emoji, enforce_emoji_distribution
 from .services.channel_locks import ChannelLockManager
 from .services.git_sync import GitSyncService, load_git_sync_config
+from .services.user_preferences import UserPreferencesService
 
 
 log = logging.getLogger(__name__)
@@ -42,6 +43,14 @@ RESPONSE_LENGTH_MAX_TOKENS = {
     "concise": 150,
     "balanced": 500,
     "detailed": None,  # No limit for detailed responses
+}
+
+# Emoji density guidance text mapping for system prompt injection
+EMOJI_DENSITY_GUIDANCE = {
+    "none": "Do not use any emojis.",
+    "minimal": "Use emojis sparingly, only 1-2 per message.",
+    "normal": "Use emojis naturally.",
+    "lots": "Be generous with emojis, include many throughout.",
 }
 
 
@@ -325,21 +334,31 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
             async def _generate_and_reply() -> None:
                 # Initialize cmeta early so it's available for emoji enforcement later
                 cmeta: list[dict] = []
-                persona_name = await bot.prism_settings.resolve_persona_name(message.guild.id, message.channel.id, message.author.id)
+
+                # Resolve persona: check user preference first, then fall back to guild default
+                user_persona = await bot.prism_user_prefs.resolve_preferred_persona(message.author.id)  # type: ignore[attr-defined]
+                if user_persona is not None:
+                    persona_name = user_persona
+                else:
+                    persona_name = await bot.prism_settings.resolve_persona_name(message.guild.id, message.channel.id, message.author.id)
                 persona = await bot.prism_personas.get(persona_name)
                 if not persona:
                     persona = await bot.prism_personas.get("default")
 
-                # Resolve response length preference for this guild
-                response_length = await bot.prism_settings.resolve_response_length(message.guild.id)
+                # Resolve response length preference from user preferences
+                response_length = await bot.prism_user_prefs.resolve_response_length(message.author.id)  # type: ignore[attr-defined]
                 length_guidance = RESPONSE_LENGTH_GUIDANCE.get(response_length, RESPONSE_LENGTH_GUIDANCE["balanced"])
                 max_tokens = RESPONSE_LENGTH_MAX_TOKENS.get(response_length)
+
+                # Resolve emoji density preference from user preferences
+                emoji_density = await bot.prism_user_prefs.resolve_emoji_density(message.author.id)  # type: ignore[attr-defined]
+                density_guidance = EMOJI_DENSITY_GUIDANCE.get(emoji_density, EMOJI_DENSITY_GUIDANCE["normal"])
 
                 base_rules = _load_base_guidelines_text()
                 persona_prompt = persona.data.system_prompt if persona else ""
 
-                # Build system prompt: base_rules + length_guidance + persona_prompt
-                system_prompt = base_rules + "\n\n" + length_guidance + "\n\n" + persona_prompt
+                # Build system prompt: base_rules + length_guidance + density_guidance + persona_prompt
+                system_prompt = base_rules + "\n\n" + length_guidance + "\n\n" + density_guidance + "\n\n" + persona_prompt
 
                 # Emoji talk: provide compact candidates and style preference
                 if cfg.emoji_talk_enabled:  # type: ignore[attr-defined]
@@ -442,7 +461,8 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                     reply = text.strip() if text else "(no content)"
                     # Emoji enforcement: ensure at least one emoji per sentence when enabled,
                     # spread them out, and avoid duplicate emoji tokens in a single message.
-                    if cfg.emoji_talk_enabled:  # type: ignore[attr-defined]
+                    # Skip emoji enforcement entirely when user density is "none"
+                    if cfg.emoji_talk_enabled and emoji_density != "none":  # type: ignore[attr-defined]
                         no_emoji_requested = any(w in content.lower() for w in ["no emoji", "no emojis", "without emoji", "without emojis"])
                         if not no_emoji_requested and reply:
                             custom_tokens = [m.get("token") for m in cmeta if str(m.get("token", "")).startswith("<")]
@@ -538,6 +558,7 @@ async def amain() -> None:
     bot.prism_cfg = cfg  # type: ignore[attr-defined]
     bot.prism_db = db  # type: ignore[attr-defined]
     bot.prism_settings = SettingsService(db)  # type: ignore[attr-defined]
+    bot.prism_user_prefs = UserPreferencesService(db)  # type: ignore[attr-defined]
 
     # Initialize git sync for personas if configured
     personas_dir = os.path.join(os.path.dirname(__file__), "../personas")
@@ -563,11 +584,11 @@ async def amain() -> None:
     # Load cogs
     from .cogs.personas import setup as setup_personas
     from .cogs.memory import setup as setup_memory
-    from .cogs.length import setup as setup_length
+    from .cogs.preferences import setup as setup_preferences
 
     setup_personas(bot)
     setup_memory(bot)
-    setup_length(bot)
+    setup_preferences(bot)
 
     # Install signal handlers for graceful shutdown (including SIGTERM)
     shutdown_requested = False
