@@ -125,7 +125,7 @@ class PersonaCog(discord.Cog):
         await ctx.respond(f"Persona '{friendly}' created from outline.")
 
     @persona.command(name="edit", description="Edit a persona (filesystem)")
-    @option("name", str, description="Persona name", required=True)
+    @option("name", str, description="Persona name", required=True, autocomplete=basic_autocomplete(_persona_name_autocomplete))
     @option("display_name", str, description="Friendly display name", required=False, default=None)
     @option("system_prompt", str, description="New system prompt", required=False, default=None)
     @option("description", str, description="New description", required=False, default=None)
@@ -194,7 +194,7 @@ class PersonaCog(discord.Cog):
         await ctx.respond(f"Persona '{friendly}' updated.")
 
     @persona.command(name="delete", description="Delete a persona (filesystem)")
-    @option("name", str, description="Persona name", required=True)
+    @option("name", str, description="Persona name", required=True, autocomplete=basic_autocomplete(_persona_name_autocomplete))
     async def persona_delete(self, ctx: discord.ApplicationContext, name: str):  # type: ignore[override]
         await ctx.defer(ephemeral=False)
         try:
