@@ -67,25 +67,39 @@ class PersonaCog(discord.Cog):
 
     @persona.command(name="set", description="Set the active persona for this guild")
     @option("name", str, description="Persona name", required=True, autocomplete=basic_autocomplete(_persona_name_autocomplete))
-    async def persona_set(self, ctx: discord.ApplicationContext, name: str):  # type: ignore[override]
+    @option("clear_history", bool, description="Clear conversation history in this channel (helps persona switch cleanly)", required=False, default=True)
+    async def persona_set(self, ctx: discord.ApplicationContext, name: str, clear_history: bool = True):  # type: ignore[override]
         if not ctx.guild:
             await ctx.respond("This command must be used in a guild.")
             return
 
         # Reload personas so we have the latest set persona in cache.
         await self.bot.prism_personas.load_builtins()
-        
+
         rec = await self.bot.prism_personas.get(name)
         if not rec:
             await ctx.respond(f"Persona '{name}' not found.")
             return
         await self.bot.prism_settings.set_persona(ctx.guild.id, "guild", None, rec.data.name)
+
+        # Clear conversation history in this channel to help the persona switch cleanly
+        history_cleared = False
+        if clear_history:
+            try:
+                await self.bot.prism_memory.clear_channel(ctx.guild.id, ctx.channel.id)
+                history_cleared = True
+            except Exception as e:
+                log.warning("Failed to clear channel history during persona switch: %s", e)
+
         # Friendly confirmation name
         friendly = (rec.data.display_name or "").strip()
         if not friendly:
             parts = re.split(r"[-_\s]+", (rec.data.name or "").strip())
             friendly = " ".join(w.capitalize() for w in parts if w)
-        await ctx.respond(f"Persona set to '{friendly}' for this guild.")
+        msg = f"Persona set to '{friendly}' for this guild."
+        if history_cleared:
+            msg += " Conversation history cleared."
+        await ctx.respond(msg)
 
     @persona.command(name="create", description="Create a new persona (AI-assisted)")
     # Discord requires required options to be listed before optional ones
@@ -198,13 +212,18 @@ class PersonaCog(discord.Cog):
     async def persona_delete(self, ctx: discord.ApplicationContext, name: str):  # type: ignore[override]
         await ctx.defer(ephemeral=False)
         try:
+            # Reset any guilds using this persona to default before deleting
+            reset_count = await self.bot.prism_settings.reset_persona_to_default(name)
             await self.bot.prism_personas.delete(name)
         except Exception as e:  # noqa: BLE001
             await ctx.respond(f"Failed to delete persona: {e}")
             return
         parts = re.split(r"[-_\s]+", (name or "").strip())
         friendly = " ".join(w.capitalize() for w in parts if w)
-        await ctx.respond(f"Persona '{friendly}' deleted.")
+        msg = f"Persona '{friendly}' deleted."
+        if reset_count > 0:
+            msg += f" {reset_count} guild(s) reset to default persona."
+        await ctx.respond(msg)
 
 
 def setup(bot: discord.Bot):

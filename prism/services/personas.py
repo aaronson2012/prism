@@ -169,6 +169,9 @@ class PersonasService:
         await self._git_sync_file(f"{self._slug(rec.data.name)}.toml", "update")
 
     async def delete(self, name: str) -> None:
+        # Prevent deletion of the default persona
+        if name.lower() == "default":
+            raise ValueError("Cannot delete the default persona")
         rec = await self.get(name)
         if not rec:
             raise ValueError(f"Persona '{name}' not found")
@@ -307,11 +310,14 @@ class PersonasService:
         examples_text = await self._get_example_personas(limit=2)
 
         sys = (
-            "You design persona system prompts and names for an AI assistant.\n"
+            "You design persona system prompts for an AI assistant.\n"
             "Return STRICT JSON with keys: name (string), description (short), system_prompt (string).\n"
             "System_prompt should contain 2–3 sections with bullet points: Personality traits; Communication style; Behavior patterns.\n"
             "Keep it concise and broadly applicable. Do not include base guidelines; those are applied separately.\n"
             "Name style: 1–3 words, Title Case, descriptive, no quotes.\n\n"
+            "CRITICAL: When the persona is based on a fictional character, the system_prompt MUST instruct the AI to BE that character, "
+            "not just mimic their personality. Start with 'You are [character name]' and include the character's background, "
+            "relationships, motivations, and worldview. The AI should respond as if it IS that character in a roleplay context.\n\n"
             f"{examples_text}"
         )
         if want_name:

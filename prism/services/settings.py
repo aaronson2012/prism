@@ -65,3 +65,22 @@ class SettingsService:
         # All personas are guild-wide; ignore channel/user.
         data = await self.get(guild_id)
         return data.get("default_persona", DEFAULT_SETTINGS["default_persona"])  # type: ignore[return-value]
+
+    async def reset_persona_to_default(self, persona_name: str) -> int:
+        """Reset all guilds using the specified persona back to 'default'.
+
+        Returns the number of guilds that were reset.
+        """
+        # Find all guilds using this persona
+        rows = await self.db.fetchall("SELECT guild_id, data_json FROM settings")
+        reset_count = 0
+        for row in rows:
+            try:
+                data = json.loads(row[1])
+                if data.get("default_persona", "").lower() == persona_name.lower():
+                    data["default_persona"] = "default"
+                    await self.set(int(row[0]), data)
+                    reset_count += 1
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+        return reset_count
