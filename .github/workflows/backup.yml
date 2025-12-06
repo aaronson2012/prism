@@ -38,6 +38,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-google-drive
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Install Google Drive dependencies
         run: pip install google-api-python-client google-auth
 
