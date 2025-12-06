@@ -30,6 +30,13 @@ _STARTUP_MAX_RETRIES = 5
 _STARTUP_INITIAL_DELAY = 5.0  # seconds
 _STARTUP_MAX_DELAY = 60.0  # seconds
 
+# Response length guidance text mapping for system prompt injection
+RESPONSE_LENGTH_GUIDANCE = {
+    "concise": "Keep responses brief and direct; aim for 1-2 sentences when possible.",
+    "balanced": "Provide complete answers but avoid over-explaining; use standard response length.",
+    "detailed": "Give thorough, comprehensive responses with full context and explanations.",
+}
+
 
 def _clip_reply_to_limit(text: str) -> tuple[str, bool]:
     """Ensure replies respect Discord's 2000-character limit by silently truncating if needed."""
@@ -105,7 +112,7 @@ def _load_base_guidelines_text() -> str:
         "Core interaction principles:\n"
         "- Be helpful, concise, and friendly.\n"
         "- Answer directly; avoid meandering filler.\n"
-        "- Match the user's tone; keep responses single‑message unless asked to expand.\n"
+        "- Match the user's tone; keep responses single-message unless asked to expand.\n"
         "- Use clear, plain language; briefly define jargon when needed.\n"
         "- State key assumptions and ask a clarifying question only when essential.\n"
         "- Avoid tagging users with @; refer to names without pings.\n"
@@ -114,12 +121,12 @@ def _load_base_guidelines_text() -> str:
         "- Stay within the conversation context; don't claim capabilities you cannot perform here.\n"
         "- If unsure, say so briefly and propose a sensible next step.\n"
         "- Keep all responses under 2000 characters to fit within Discord's message limit.\n\n"
-        "Global emoji guidelines (conversation‑wide):\n"
-        "- Be emoji‑eager: include at least one emoji per sentence unless the user explicitly asks for no emojis.\n"
+        "Global emoji guidelines (conversation-wide):\n"
+        "- Be emoji-eager: include at least one emoji per sentence unless the user explicitly asks for no emojis.\n"
         "- Prefer custom server emojis when available; otherwise use appropriate Unicode emojis.\n"
         "- When using custom Discord emojis, emit their literal tokens: <:name:id> for static, <a:name:id> for animated.\n"
-        "- If the user asks for ‘no emoji’/‘without emoji’, comply and do not add any.\n"
-        "- Don’t add disclaimers about not generating images—just include the emojis inline.\n"
+        "- If the user asks for 'no emoji'/'without emoji', comply and do not add any.\n"
+        "- Don't add disclaimers about not generating images--just include the emojis inline.\n"
         "- Keep emoji usage natural and readable; avoid overwhelming the text.\n"
         "- Spread emojis across the message; avoid clumping multiple together.\n"
         "- Do not use the same emoji more than once in a single message.\n"
@@ -152,7 +159,7 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
     async def on_ready():
         log.info("Logged in as %s (%s)", bot.user, bot.user and bot.user.id)
         log.info("Message content intent: %s", getattr(bot.intents, "message_content", False))
-        
+
         # Start periodic message pruning task
         try:
             bot.loop.create_task(_periodic_message_pruning())
@@ -315,8 +322,17 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                 persona = await bot.prism_personas.get(persona_name)
                 if not persona:
                     persona = await bot.prism_personas.get("default")
+
+                # Resolve response length preference for this guild
+                response_length = await bot.prism_settings.resolve_response_length(message.guild.id)
+                length_guidance = RESPONSE_LENGTH_GUIDANCE.get(response_length, RESPONSE_LENGTH_GUIDANCE["balanced"])
+
                 base_rules = _load_base_guidelines_text()
-                system_prompt = base_rules + "\n\n" + (persona.data.system_prompt if persona else "")
+                persona_prompt = persona.data.system_prompt if persona else ""
+
+                # Build system prompt: base_rules + length_guidance + persona_prompt
+                system_prompt = base_rules + "\n\n" + length_guidance + "\n\n" + persona_prompt
+
                 # Emoji talk: provide compact candidates and style preference
                 if cfg.emoji_talk_enabled:  # type: ignore[attr-defined]
                     try:
@@ -385,7 +401,7 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                                 system_prompt += "\nEmoji titles: " + titles
                             # Brief hint: candidates are available; custom tokens render as-is in Discord
                             system_prompt += (
-                                "\nYou may use these emoji candidates directly. For custom Discord emojis, emit the token forms '<:name:id>' or '<a:name:id>' — they will render in Discord."
+                                "\nYou may use these emoji candidates directly. For custom Discord emojis, emit the token forms '<:name:id>' or '<a:name:id>' -- they will render in Discord."
                             )
                             # Give a concrete example using server tokens to nudge correct formatting
                             try:
@@ -423,11 +439,11 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                         if not no_emoji_requested and reply:
                             custom_tokens = [m.get("token") for m in cmeta if str(m.get("token", "")).startswith("<")]
                             unicode_tokens = [m.get("token") for m in cmeta if m.get("token") and not str(m.get("token")).startswith("<")]
-                            
+
                             # If model forgot custom emojis, add at least one
                             if custom_tokens and ("<:" not in reply and "<a:" not in reply):
                                 reply = fallback_add_custom_emoji(reply, custom_tokens)
-                            
+
                             # Apply full emoji enforcement pipeline
                             reply = enforce_emoji_distribution(reply, custom_tokens, unicode_tokens)
                     original_length = len(reply)
@@ -539,9 +555,11 @@ async def amain() -> None:
     # Load cogs
     from .cogs.personas import setup as setup_personas
     from .cogs.memory import setup as setup_memory
+    from .cogs.length import setup as setup_length
 
     setup_personas(bot)
     setup_memory(bot)
+    setup_length(bot)
 
     # Install signal handlers for graceful shutdown (including SIGTERM)
     shutdown_requested = False
@@ -630,7 +648,7 @@ def main() -> None:
         asyncio.run(amain())
     except KeyboardInterrupt:
         # Redundant guard in case Ctrl-C propagates past amain(); keep output clean
-        print("Interrupted — exiting cleanly.")
+        print("Interrupted -- exiting cleanly.")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,10 @@ log = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "default_persona": "default",
+    "response_length": "balanced",
 }
+
+VALID_RESPONSE_LENGTHS = ("concise", "balanced", "detailed")
 
 
 class SettingsService:
@@ -27,20 +30,20 @@ class SettingsService:
             "INSERT OR IGNORE INTO settings (guild_id, data_json) VALUES (?, ?)",
             (str(guild_id), json.dumps(DEFAULT_SETTINGS)),
         )
-        
+
         # Now fetch (guaranteed to exist)
         row = await self.db.fetchone("SELECT data_json FROM settings WHERE guild_id = ?", (str(guild_id),))
         if not row:
             # Should never happen after INSERT OR IGNORE, but handle defensively
             log.warning("Settings row missing after INSERT OR IGNORE for guild %s", guild_id)
             return DEFAULT_SETTINGS.copy()
-        
+
         try:
             data = json.loads(row[0])
         except (json.JSONDecodeError, TypeError, ValueError) as e:
             log.warning("Failed to parse settings JSON for guild %s: %s", guild_id, e)
             data = DEFAULT_SETTINGS.copy()
-        
+
         # Ensure keys exist with proper deep copy for mutable defaults
         for k, v in DEFAULT_SETTINGS.items():
             if k not in data:
@@ -84,3 +87,33 @@ class SettingsService:
             except (json.JSONDecodeError, TypeError, ValueError):
                 continue
         return reset_count
+
+    async def set_response_length(self, guild_id: int, length: str) -> None:
+        """Set the response length preference for a guild.
+
+        Args:
+            guild_id: The Discord guild ID
+            length: One of "concise", "balanced", or "detailed"
+
+        Raises:
+            ValueError: If length is not a valid option
+        """
+        if length not in VALID_RESPONSE_LENGTHS:
+            raise ValueError(
+                f"Invalid response length '{length}'. Must be one of: {', '.join(VALID_RESPONSE_LENGTHS)}"
+            )
+        data = await self.get(guild_id)
+        data["response_length"] = length
+        await self.set(guild_id, data)
+
+    async def resolve_response_length(self, guild_id: int) -> str:
+        """Resolve the response length preference for a guild.
+
+        Args:
+            guild_id: The Discord guild ID
+
+        Returns:
+            The stored response length or "balanced" as default
+        """
+        data = await self.get(guild_id)
+        return data.get("response_length", DEFAULT_SETTINGS["response_length"])  # type: ignore[return-value]
