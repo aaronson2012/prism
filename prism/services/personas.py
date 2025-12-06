@@ -5,12 +5,14 @@ import logging
 import os
 from dataclasses import dataclass
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from .db import Database
 
+if TYPE_CHECKING:
+    from .git_sync import GitSyncService
 
 log = logging.getLogger(__name__)
 
@@ -37,12 +39,18 @@ class PersonaRecord:
 
 
 class PersonasService:
-    def __init__(self, db: Database, defaults_dir: str) -> None:
+    def __init__(
+        self,
+        db: Database,
+        defaults_dir: str,
+        git_sync: GitSyncService | None = None,
+    ) -> None:
         # DB retained in signature for compatibility; no longer used for personas
         self.db = db
         # All personas live directly under this directory (TOML only)
         self.defaults_dir = defaults_dir
         self._builtins: dict[str, PersonaRecord] = {}
+        self._git_sync = git_sync
 
     async def load_builtins(self) -> None:
         self._builtins.clear()
@@ -138,6 +146,8 @@ class PersonasService:
         self._validate_path_safe(path)
         self._write_toml_persona(path, model)
         await self.load_builtins()
+        # Sync to git if enabled
+        await self._git_sync_file(f"{self._slug(model.name)}.toml", "create")
 
     async def update(self, name: str, updates: dict[str, Any]) -> None:
         rec = await self.get(name)
@@ -155,11 +165,15 @@ class PersonasService:
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         self._write_toml_persona(dest_path, model)
         await self.load_builtins()
+        # Sync to git if enabled
+        await self._git_sync_file(f"{self._slug(rec.data.name)}.toml", "update")
 
     async def delete(self, name: str) -> None:
         rec = await self.get(name)
         if not rec:
             raise ValueError(f"Persona '{name}' not found")
+        # Store filename before deletion for git sync
+        filename = f"{self._slug(rec.data.name)}.toml"
         try:
             if rec.path and os.path.isfile(rec.path):
                 # Validate path safety even for existing paths
@@ -177,8 +191,19 @@ class PersonasService:
             # ValueError covers path validation errors
             raise ValueError(f"Failed to delete persona file: {e}") from e
         await self.load_builtins()
+        # Sync deletion to git if enabled
+        await self._git_sync_file(filename, "delete")
 
     # ---------------------- Helpers ----------------------
+    async def _git_sync_file(self, filename: str, action: str) -> None:
+        """Sync a persona file to git (fire-and-forget, logs errors)."""
+        if self._git_sync is None:
+            return
+        try:
+            await self._git_sync.sync_persona(filename, action)
+        except Exception as e:
+            log.warning("Git sync failed for %s (%s): %s", filename, action, e)
+
     @staticmethod
     def _slug(name: str) -> str:
         s = re.sub(r"[^a-zA-Z0-9_-]+", "-", name.strip())
@@ -277,12 +302,17 @@ class PersonasService:
         Returns the final created persona name.
         """
         want_name = name and name.strip()
+
+        # Gather example personas for reference (up to 2)
+        examples_text = await self._get_example_personas(limit=2)
+
         sys = (
             "You design persona system prompts and names for an AI assistant.\n"
             "Return STRICT JSON with keys: name (string), description (short), system_prompt (string).\n"
             "System_prompt should contain 2–3 sections with bullet points: Personality traits; Communication style; Behavior patterns.\n"
             "Keep it concise and broadly applicable. Do not include base guidelines; those are applied separately.\n"
-            "Name style: 1–3 words, Title Case, descriptive, no quotes."
+            "Name style: 1–3 words, Title Case, descriptive, no quotes.\n\n"
+            f"{examples_text}"
         )
         if want_name:
             user = (
@@ -346,3 +376,38 @@ class PersonasService:
                 return candidate
         # Give up and return original; will fail on create
         return base
+
+    async def _get_example_personas(self, limit: int = 2) -> str:
+        """Get example personas formatted for AI reference.
+
+        Returns a formatted string showing existing persona examples
+        to help the AI understand the expected format and style.
+        """
+        personas = await self.list()
+        # Filter out base/default personas, prefer interesting examples
+        good_examples = [
+            p for p in personas
+            if p.data.name not in ("default", "_base_guidelines")
+            and p.data.system_prompt
+            and len(p.data.system_prompt) > 50
+        ]
+        if not good_examples:
+            return ""
+
+        # Take up to `limit` examples
+        selected = good_examples[:limit]
+
+        parts = ["Here are examples of existing personas for reference:\n"]
+        for p in selected:
+            # Truncate system_prompt if very long
+            sys_prompt = p.data.system_prompt
+            if len(sys_prompt) > 500:
+                sys_prompt = sys_prompt[:500] + "..."
+            parts.append(
+                f"---\n"
+                f"Name: {p.data.display_name or p.data.name}\n"
+                f"Description: {p.data.description}\n"
+                f"System prompt:\n{sys_prompt}\n"
+            )
+        parts.append("---\nUse a similar structure and style for the new persona.")
+        return "\n".join(parts)

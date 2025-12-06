@@ -16,6 +16,7 @@ from .services.memory import MemoryService, Message as MemMessage
 from .services.emoji_index import EmojiIndexService
 from .services.emoji_enforcer import fallback_add_custom_emoji, enforce_emoji_distribution
 from .services.channel_locks import ChannelLockManager
+from .services.git_sync import GitSyncService, load_git_sync_config
 
 
 log = logging.getLogger(__name__)
@@ -513,7 +514,20 @@ async def amain() -> None:
     bot.prism_cfg = cfg  # type: ignore[attr-defined]
     bot.prism_db = db  # type: ignore[attr-defined]
     bot.prism_settings = SettingsService(db)  # type: ignore[attr-defined]
-    bot.prism_personas = PersonasService(db, defaults_dir=os.path.join(os.path.dirname(__file__), "../personas"))  # type: ignore[attr-defined]
+
+    # Initialize git sync for personas if configured
+    personas_dir = os.path.join(os.path.dirname(__file__), "../personas")
+    git_sync_config = load_git_sync_config()
+    git_sync: GitSyncService | None = None
+    if git_sync_config.enabled:
+        git_sync = GitSyncService(git_sync_config, personas_dir)
+        if await git_sync.initialize():
+            log.info("Git sync for personas initialized")
+        else:
+            log.warning("Git sync initialization failed, continuing without sync")
+            git_sync = None
+
+    bot.prism_personas = PersonasService(db, defaults_dir=personas_dir, git_sync=git_sync)  # type: ignore[attr-defined]
     await bot.prism_personas.load_builtins()  # type: ignore[attr-defined]
     bot.prism_memory = MemoryService(db)  # type: ignore[attr-defined]
     bot.prism_emoji = EmojiIndexService(db)  # type: ignore[attr-defined]
