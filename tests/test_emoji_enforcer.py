@@ -6,6 +6,7 @@ from prism.services.emoji_enforcer import (
     declump_custom_emojis,
     fallback_add_custom_emoji,
     enforce_emoji_distribution,
+    strip_invalid_emoji_shortcodes,
 )
 
 
@@ -165,6 +166,70 @@ def test_enforce_emoji_distribution_empty_tokens():
 def test_enforce_emoji_distribution_empty_text():
     """Test that empty text is handled gracefully."""
     result = enforce_emoji_distribution("", ["<:test:123>"], ["😀"])
-    
+
     assert result == ""
+
+
+def test_strip_invalid_emoji_shortcodes_basic():
+    """Test stripping of invalid emoji shortcodes."""
+    text = "Hello :invalidemoji: world"
+    result = strip_invalid_emoji_shortcodes(text)
+    assert result == "Hello world"
+
+
+def test_strip_invalid_emoji_shortcodes_double_space():
+    """Test that double spaces are collapsed to single space."""
+    text = "Hello :fake: there"
+    result = strip_invalid_emoji_shortcodes(text)
+    assert result == "Hello there"
+    assert "  " not in result
+
+
+def test_strip_invalid_emoji_shortcodes_multiple():
+    """Test stripping multiple invalid shortcodes."""
+    text = "Start :one: middle :two: end"
+    result = strip_invalid_emoji_shortcodes(text)
+    assert result == "Start middle end"
+    assert ":one:" not in result
+    assert ":two:" not in result
+
+
+def test_strip_invalid_emoji_shortcodes_preserves_valid_custom():
+    """Test that valid Discord custom emojis are not stripped."""
+    text = "Hello <:smile:123456> world"
+    result = strip_invalid_emoji_shortcodes(text)
+    assert result == text
+
+
+def test_strip_invalid_emoji_shortcodes_preserves_animated():
+    """Test that animated Discord emojis are not stripped."""
+    text = "Hello <a:dancing:789> world"
+    result = strip_invalid_emoji_shortcodes(text)
+    assert result == text
+
+
+def test_strip_invalid_emoji_shortcodes_no_colons():
+    """Test that text without colons is returned unchanged."""
+    text = "No colons here"
+    result = strip_invalid_emoji_shortcodes(text)
+    assert result == text
+
+
+def test_strip_invalid_emoji_shortcodes_empty():
+    """Test that empty string is handled gracefully."""
+    assert strip_invalid_emoji_shortcodes("") == ""
+
+
+def test_strip_invalid_emoji_shortcodes_at_boundaries():
+    """Test stripping at start and end of text."""
+    assert strip_invalid_emoji_shortcodes(":start: text") == "text"
+    assert strip_invalid_emoji_shortcodes("text :end:") == "text"
+
+
+def test_enforce_emoji_distribution_strips_invalid():
+    """Test that enforce_emoji_distribution strips invalid shortcodes."""
+    text = "Hello :fake: world."
+    result = enforce_emoji_distribution(text, [], [])
+    assert ":fake:" not in result
+    assert "  " not in result
 

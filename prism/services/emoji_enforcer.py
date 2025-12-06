@@ -7,6 +7,11 @@ from __future__ import annotations
 
 import re
 
+# Pattern for invalid/hallucinated emoji shortcodes like :invalidemoji:
+# These are NOT valid Discord custom emoji tokens (which look like <:name:id>)
+# Uses negative lookbehind (?<!<a?)(?<!<) to avoid matching inside valid tokens
+_INVALID_EMOJI_PATTERN = re.compile(r"(\s?)(?<!<)(?<!<a):([A-Za-z0-9_]+):(?!\d+>)(\s?)")
+
 # Cache emoji library availability at module level for performance
 _EMOJI_LIB: object | None = None
 _EMOJI_LIB_CHECKED = False
@@ -22,6 +27,37 @@ def _get_emoji_lib() -> object | None:
             _EMOJI_LIB = None
         _EMOJI_LIB_CHECKED = True
     return _EMOJI_LIB
+
+
+def strip_invalid_emoji_shortcodes(text: str) -> str:
+    """Remove hallucinated emoji shortcodes like :invalidemoji: from text.
+
+    AI models sometimes hallucinate emoji shortcodes that don't exist in Discord.
+    These look like :name: but are NOT valid Discord custom emoji tokens
+    (which have the format <:name:id> or <a:name:id>).
+
+    This function strips these invalid shortcodes and normalizes surrounding
+    whitespace to avoid double spaces.
+
+    Args:
+        text: Text potentially containing invalid emoji shortcodes
+
+    Returns:
+        Text with invalid shortcodes removed and whitespace normalized
+    """
+    if not text or ":" not in text:
+        return text
+
+    def _replace_invalid(match: re.Match) -> str:
+        leading_space = match.group(1)
+        trailing_space = match.group(3)
+        # If there was space on both sides, collapse to single space
+        if leading_space and trailing_space:
+            return " "
+        # Otherwise remove entirely
+        return ""
+
+    return _INVALID_EMOJI_PATTERN.sub(_replace_invalid, text)
 
 
 def has_emoji(text: str) -> bool:
@@ -279,41 +315,45 @@ def enforce_emoji_distribution(
     max_length: int = 1900
 ) -> str:
     """Apply complete emoji enforcement pipeline.
-    
+
     Steps:
-    1. Ensure each sentence has at least one emoji
-    2. Deduplicate custom emojis
-    3. Deduplicate Unicode emojis
-    4. Declump adjacent custom emojis
-    5. Declump adjacent Unicode emojis
-    
+    1. Strip invalid/hallucinated emoji shortcodes
+    2. Ensure each sentence has at least one emoji
+    3. Deduplicate custom emojis
+    4. Deduplicate Unicode emojis
+    5. Declump adjacent custom emojis
+    6. Declump adjacent Unicode emojis
+
     Args:
         text: Original text
         custom_tokens: Available custom Discord emoji tokens
         unicode_tokens: Available Unicode emoji characters
         max_length: Maximum allowed result length
-        
+
     Returns:
         Text with emoji enforcement applied
     """
     if not text:
         return text
-    
-    # Step 1: Ensure emoji per sentence
-    result = ensure_emoji_per_sentence(text, custom_tokens, unicode_tokens, max_length)
-    
-    # Step 2: Deduplicate custom emojis
+
+    # Step 1: Strip invalid/hallucinated emoji shortcodes like :invalidemoji:
+    result = strip_invalid_emoji_shortcodes(text)
+
+    # Step 2: Ensure emoji per sentence
+    result = ensure_emoji_per_sentence(result, custom_tokens, unicode_tokens, max_length)
+
+    # Step 3: Deduplicate custom emojis
     result = deduplicate_custom_emojis(result)
-    
-    # Step 3: Deduplicate Unicode emojis
+
+    # Step 4: Deduplicate Unicode emojis
     result = deduplicate_unicode_emojis(result)
-    
-    # Step 4: Declump custom emojis
+
+    # Step 5: Declump custom emojis
     result = declump_custom_emojis(result)
-    
-    # Step 5: Declump Unicode emojis
+
+    # Step 6: Declump Unicode emojis
     result = declump_unicode_emojis(result)
-    
+
     return result
 
 
