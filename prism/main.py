@@ -37,6 +37,13 @@ RESPONSE_LENGTH_GUIDANCE = {
     "detailed": "Give thorough, comprehensive responses with full context and explanations.",
 }
 
+# Hard token limits for response length enforcement via API
+RESPONSE_LENGTH_MAX_TOKENS = {
+    "concise": 150,
+    "balanced": 500,
+    "detailed": None,  # No limit for detailed responses
+}
+
 
 def _clip_reply_to_limit(text: str) -> tuple[str, bool]:
     """Ensure replies respect Discord's 2000-character limit by silently truncating if needed."""
@@ -326,6 +333,7 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                 # Resolve response length preference for this guild
                 response_length = await bot.prism_settings.resolve_response_length(message.guild.id)
                 length_guidance = RESPONSE_LENGTH_GUIDANCE.get(response_length, RESPONSE_LENGTH_GUIDANCE["balanced"])
+                max_tokens = RESPONSE_LENGTH_MAX_TOKENS.get(response_length)
 
                 base_rules = _load_base_guidelines_text()
                 persona_prompt = persona.data.system_prompt if persona else ""
@@ -430,7 +438,7 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
 
                 try:
                     chosen_model = persona.data.model or cfg.default_model if persona else cfg.default_model
-                    text, _meta = await orc.chat_completion(messages, model=chosen_model)
+                    text, _meta = await orc.chat_completion(messages, model=chosen_model, max_tokens=max_tokens)
                     reply = text.strip() if text else "(no content)"
                     # Emoji enforcement: ensure at least one emoji per sentence when enabled,
                     # spread them out, and avoid duplicate emoji tokens in a single message.
