@@ -579,16 +579,20 @@ async def amain() -> None:
     bot.prism_orc = orc  # type: ignore[attr-defined]
     # Per-channel locks to avoid interleaved generations (with automatic cleanup)
     bot.prism_channel_locks = ChannelLockManager(cleanup_threshold_sec=3600.0)  # type: ignore[attr-defined]
+    # Active duels storage (keyed by channel_id)
+    bot.prism_active_duels = {}  # type: ignore[attr-defined]
 
     register_commands(bot, orc, cfg)
     # Load cogs
     from .cogs.personas import setup as setup_personas
     from .cogs.memory import setup as setup_memory
     from .cogs.preferences import setup as setup_preferences
+    from .cogs.duel import setup as setup_duel
 
     setup_personas(bot)
     setup_memory(bot)
     setup_preferences(bot)
+    setup_duel(bot)
 
     # Install signal handlers for graceful shutdown (including SIGTERM)
     shutdown_requested = False
