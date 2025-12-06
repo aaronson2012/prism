@@ -229,18 +229,28 @@ prism/
 │       └── migrations.py           # Database migration system
 │
 ├── personas/                       # Persona definitions (TOML files)
+│   ├── _base_guidelines.toml       # Shared guidelines for all personas
 │   ├── default.toml
-│   ├── helpful-assistant.toml
-│   └── ...
+│   └── ...                         # Additional persona files
 │
 ├── tests/                          # Test suite
+│   ├── conftest.py                 # Pytest fixtures
 │   ├── test_channel_locks.py
+│   ├── test_config.py
 │   ├── test_database.py
 │   ├── test_emoji_enforcer.py
+│   ├── test_emoji_index.py
+│   ├── test_logging.py
 │   ├── test_memory_service.py
-│   └── test_openrouter_client.py
+│   ├── test_message_truncation.py
+│   ├── test_openrouter_client.py
+│   ├── test_personas.py
+│   ├── test_settings.py
+│   └── test_shutdown.py
 │
 ├── .env.example                    # Example configuration
+├── Dockerfile                      # Container image definition
+├── fly.toml                        # Fly.io deployment configuration
 ├── pyproject.toml                  # Package metadata and dependencies
 ├── pytest.ini                      # Pytest configuration
 └── README.md                       # This file
@@ -254,6 +264,52 @@ prism/
 - **TOML Personas**: File-based persona definitions for easy customization
 - **Rate Limiting**: Built-in rate limiting to prevent API abuse
 - **Memory Management**: Automatic cleanup of old messages (30-day retention)
+
+## 🚢 Deployment
+
+### Fly.io
+
+The project includes configuration for deploying to [Fly.io](https://fly.io/):
+
+1. **Install Fly CLI**:
+```bash
+curl -L https://fly.io/install.sh | sh
+```
+
+2. **Login and launch**:
+```bash
+fly auth login
+fly launch
+```
+
+3. **Set secrets**:
+```bash
+fly secrets set DISCORD_TOKEN=your_token_here
+fly secrets set OPENROUTER_API_KEY=your_key_here
+```
+
+4. **Deploy**:
+```bash
+fly deploy
+```
+
+The deployment uses:
+- A persistent volume mounted at `/data` for the SQLite database
+- Shared CPU (1x) with 512MB memory
+- Primary region: `iad` (US East)
+
+### Docker
+
+Build and run locally with Docker:
+
+```bash
+docker build -t prism-bot .
+docker run -d \
+  -e DISCORD_TOKEN=your_token \
+  -e OPENROUTER_API_KEY=your_key \
+  -v prism_data:/data \
+  prism-bot
+```
 
 ## 🔧 Advanced Configuration
 
@@ -272,15 +328,29 @@ COMMAND_GUILD_IDS=123456789,987654321
 
 ### Logging
 
-Logs are written to `data/logs/` with automatic rotation:
+Logs are written with automatic rotation. The log directory is auto-detected in this order:
+1. `PRISM_LOG_DIR` environment variable (if set)
+2. `./logs` (if writable)
+3. `$XDG_STATE_HOME/prism/logs`
+4. `~/.local/state/prism/logs`
+
+Log files:
 - `prism.log`: General logs (INFO, DEBUG, WARNING)
 - `errors.log`: Errors and critical issues only
+- `discord-YYYY-MM-DD.log`: Discord library logs
 - `console-YYYY-MM-DD.log`: Console output capture
-- Default retention: 14 days
 
-Configure log level:
+Log retention defaults:
+- General logs: 14 days
+- Error logs: 90 days
+- Discord logs: 14 days
+- Console logs: 14 days
+
+Configure logging:
 ```bash
-LOG_LEVEL=DEBUG  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_LEVEL=DEBUG              # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+DISCORD_LOG_LEVEL=INFO       # Discord.py library log level
+PRISM_LOG_DIR=/path/to/logs  # Custom log directory
 ```
 
 ## 🤝 Contributing
