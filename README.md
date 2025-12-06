@@ -152,6 +152,28 @@ All commands are slash commands and work guild-wide.
 /memory clear
 ```
 
+### User Preferences
+
+| Command | Description |
+|---------|-------------|
+| `/preferences view` | View your current preference settings |
+| `/preferences set <preference> <value>` | Set a preference value |
+| `/preferences reset` | Reset all preferences to defaults |
+
+**Available Preferences:**
+- `response_length`: `concise`, `balanced`, `detailed`
+- `emoji_density`: `none`, `minimal`, `normal`, `lots`
+- `preferred_persona`: Any persona name or `none` to clear
+
+**Example:**
+```
+/preferences view
+/preferences set response_length concise
+/preferences set emoji_density minimal
+/preferences set preferred_persona helpful-assistant
+/preferences reset
+```
+
 ## 🧪 Development
 
 ### Running Tests
@@ -212,17 +234,20 @@ prism/
 │   │
 │   ├── cogs/                       # Discord command groups (slash commands)
 │   │   ├── memory.py               # Memory view/clear commands
-│   │   └── personas.py             # Persona management commands
+│   │   ├── personas.py             # Persona management commands
+│   │   └── preferences.py          # User preferences commands
 │   │
 │   ├── services/                   # Core business logic
 │   │   ├── db.py                   # SQLite database wrapper
 │   │   ├── memory.py               # Conversation memory service
 │   │   ├── personas.py             # Persona CRUD operations
 │   │   ├── settings.py             # Guild settings management
+│   │   ├── user_preferences.py     # User-level preference management
 │   │   ├── emoji_index.py          # Emoji indexing and suggestions
 │   │   ├── emoji_enforcer.py       # Emoji distribution logic
 │   │   ├── channel_locks.py        # Per-channel lock management
-│   │   └── openrouter_client.py    # OpenRouter API client
+│   │   ├── openrouter_client.py    # OpenRouter API client
+│   │   └── git_sync.py             # Git sync for persona changes
 │   │
 │   └── storage/                    # Data persistence
 │       ├── schema.sql              # Database schema
@@ -240,13 +265,16 @@ prism/
 │   ├── test_database.py
 │   ├── test_emoji_enforcer.py
 │   ├── test_emoji_index.py
+│   ├── test_length_deprecation.py
 │   ├── test_logging.py
 │   ├── test_memory_service.py
 │   ├── test_message_truncation.py
 │   ├── test_openrouter_client.py
 │   ├── test_personas.py
+│   ├── test_preferences_cog.py
 │   ├── test_settings.py
-│   └── test_shutdown.py
+│   ├── test_shutdown.py
+│   └── test_user_preferences.py
 │
 ├── .env.example                    # Example configuration
 ├── Dockerfile                      # Container image definition

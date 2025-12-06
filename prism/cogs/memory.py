@@ -23,7 +23,7 @@ class MemoryCog(discord.Cog):
             return
         await ctx.defer(ephemeral=False)
         # Fetch a window then trim to requested limit for display
-        history = await self.bot.prism_memory.get_recent_window(ctx.guild.id, ctx.channel_id, budget_tokens=10_000, max_messages=200)
+        history = await self.bot.prism_memory.get_recent_window(ctx.guild.id, ctx.channel_id, max_messages=200)
         # Show only last N
         to_show = history[-limit:] if limit and limit > 0 else history
         if not to_show:

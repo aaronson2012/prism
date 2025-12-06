@@ -34,50 +34,14 @@ class TestLengthCogDeprecation:
         # Verify no reference to LengthCog
         assert "LengthCog" not in main_content
 
+    def test_settings_service_response_length_methods_removed(self):
+        """Test deprecated response_length methods removed from SettingsService.
 
-class TestSettingsServiceBackwardCompatibility:
-    """Tests verifying SettingsService maintains backward compatibility."""
-
-    def test_settings_service_has_response_length_methods(self):
-        """Test SettingsService still has response_length methods for migration compatibility.
-
-        Even though user-level preferences are now in UserPreferencesService,
-        the SettingsService should keep response_length methods for guild-level
-        fallback and migration purposes.
+        After full migration to UserPreferencesService, the deprecated
+        guild-level response_length methods should be removed.
         """
         from prism.services.settings import SettingsService
 
-        # Verify methods exist on the class
-        assert hasattr(SettingsService, "set_response_length")
-        assert hasattr(SettingsService, "resolve_response_length")
-        assert callable(getattr(SettingsService, "set_response_length"))
-        assert callable(getattr(SettingsService, "resolve_response_length"))
-
-    def test_settings_default_still_has_response_length(self):
-        """Test DEFAULT_SETTINGS still includes response_length.
-
-        The response_length key should remain in DEFAULT_SETTINGS for
-        backward compatibility with existing guild settings.
-        """
-        from prism.services.settings import DEFAULT_SETTINGS
-
-        assert "response_length" in DEFAULT_SETTINGS
-        assert DEFAULT_SETTINGS["response_length"] == "balanced"
-
-    @pytest.mark.asyncio
-    async def test_settings_response_length_still_functional(self, db_with_schema):
-        """Test SettingsService response_length methods still work.
-
-        Guild-level response_length should remain functional for
-        backward compatibility and potential future use.
-        """
-        from prism.services.settings import SettingsService
-
-        service = SettingsService(db=db_with_schema)
-
-        # Test set_response_length works
-        await service.set_response_length(123456, "concise")
-
-        # Test resolve_response_length returns the set value
-        result = await service.resolve_response_length(123456)
-        assert result == "concise"
+        # Verify methods no longer exist on the class
+        assert not hasattr(SettingsService, "set_response_length")
+        assert not hasattr(SettingsService, "resolve_response_length")

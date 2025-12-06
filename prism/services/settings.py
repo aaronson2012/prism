@@ -13,12 +13,7 @@ log = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "default_persona": "default",
-    # DEPRECATED: Use UserPreferencesService for user-level response_length
-    # Kept here for guild-level fallback and migration compatibility
-    "response_length": "balanced",
 }
-
-VALID_RESPONSE_LENGTHS = ("concise", "balanced", "detailed")
 
 
 class SettingsService:
@@ -89,43 +84,3 @@ class SettingsService:
             except (json.JSONDecodeError, TypeError, ValueError):
                 continue
         return reset_count
-
-    # DEPRECATED: Use UserPreferencesService for user-level response_length
-    # These methods are kept for guild-level fallback and migration compatibility
-    async def set_response_length(self, guild_id: int, length: str) -> None:
-        """Set the response length preference for a guild.
-
-        DEPRECATED: Use UserPreferencesService for user-level response_length.
-        This method is kept for guild-level fallback and migration compatibility.
-
-        Args:
-            guild_id: The Discord guild ID
-            length: One of "concise", "balanced", or "detailed"
-
-        Raises:
-            ValueError: If length is not a valid option
-        """
-        if length not in VALID_RESPONSE_LENGTHS:
-            raise ValueError(
-                f"Invalid response length '{length}'. Must be one of: {', '.join(VALID_RESPONSE_LENGTHS)}"
-            )
-        data = await self.get(guild_id)
-        data["response_length"] = length
-        await self.set(guild_id, data)
-
-    # DEPRECATED: Use UserPreferencesService for user-level response_length
-    # This method is kept for guild-level fallback and migration compatibility
-    async def resolve_response_length(self, guild_id: int) -> str:
-        """Resolve the response length preference for a guild.
-
-        DEPRECATED: Use UserPreferencesService for user-level response_length.
-        This method is kept for guild-level fallback and migration compatibility.
-
-        Args:
-            guild_id: The Discord guild ID
-
-        Returns:
-            The stored response length or "balanced" as default
-        """
-        data = await self.get(guild_id)
-        return data.get("response_length", DEFAULT_SETTINGS["response_length"])  # type: ignore[return-value]

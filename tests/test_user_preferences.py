@@ -288,29 +288,6 @@ class TestUserPreferencesIntegration:
     """Integration tests for user preferences taking precedence (Task 2.1)."""
 
     @pytest.mark.asyncio
-    async def test_response_length_prefers_user_preference_over_guild(self, db_with_schema):
-        """Test response length resolution prefers user preference over guild setting."""
-        from prism.services.settings import SettingsService
-
-        user_prefs = UserPreferencesService(db=db_with_schema)
-        guild_settings = SettingsService(db=db_with_schema)
-
-        # Set guild setting to "detailed"
-        await guild_settings.set_response_length(123456, "detailed")
-
-        # Set user preference to "concise"
-        await user_prefs.set_response_length(789, "concise")
-
-        # User preference should resolve independently of guild setting
-        user_length = await user_prefs.resolve_response_length(789)
-        guild_length = await guild_settings.resolve_response_length(123456)
-
-        assert user_length == "concise"
-        assert guild_length == "detailed"
-        # User preference takes precedence when resolved via user_prefs service
-        assert user_length != guild_length
-
-    @pytest.mark.asyncio
     async def test_persona_prefers_user_preference_over_guild_default(self, db_with_schema):
         """Test persona resolution prefers user preference over guild default."""
         from prism.services.settings import SettingsService

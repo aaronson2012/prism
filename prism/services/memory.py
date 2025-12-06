@@ -46,13 +46,9 @@ class MemoryService:
         self,
         guild_id: int,
         channel_id: int,
-        budget_tokens: int = 0,
         max_messages: int = 100,
     ) -> list[dict[str, str]]:
-        """
-        Return the last N messages for the channel, oldest-first.
-        The budget_tokens parameter is ignored; we always return up to max_messages (default 100).
-        """
+        """Return the last N messages for the channel, oldest-first."""
         rows = await self.db.fetchall(
             "SELECT role, content FROM messages WHERE guild_id = ? AND channel_id = ? ORDER BY id DESC LIMIT ?",
             (str(guild_id), str(channel_id), max_messages),

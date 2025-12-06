@@ -11,6 +11,7 @@ async def test_shutdown_includes_cleanup_delay():
     # Mock all the dependencies
     mock_setup_personas = MagicMock()
     mock_setup_memory = MagicMock()
+    mock_setup_preferences = MagicMock()
 
     with patch('prism.main.load_config') as mock_load_config, \
          patch('prism.main.setup_logging'), \
@@ -19,12 +20,15 @@ async def test_shutdown_includes_cleanup_delay():
          patch('prism.main.OpenRouterClient') as mock_orc_class, \
          patch('prism.main.register_commands'), \
          patch('prism.main.SettingsService'), \
+         patch('prism.main.UserPreferencesService'), \
+         patch('prism.main.load_git_sync_config') as mock_git_config, \
          patch('prism.main.PersonasService') as mock_personas_class, \
          patch('prism.main.MemoryService'), \
          patch('prism.main.EmojiIndexService'), \
          patch('prism.main.ChannelLockManager'), \
          patch.dict('sys.modules', {'prism.cogs.personas': MagicMock(setup=mock_setup_personas)}), \
          patch.dict('sys.modules', {'prism.cogs.memory': MagicMock(setup=mock_setup_memory)}), \
+         patch.dict('sys.modules', {'prism.cogs.preferences': MagicMock(setup=mock_setup_preferences)}), \
          patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
 
         # Configure mocks
@@ -38,6 +42,11 @@ async def test_shutdown_includes_cleanup_delay():
         mock_config.openrouter_app_name = None
         mock_config.discord_token = 'test-token'
         mock_load_config.return_value = mock_config
+
+        # Mock git sync config (disabled by default)
+        mock_git_sync_config = MagicMock()
+        mock_git_sync_config.enabled = False
+        mock_git_config.return_value = mock_git_sync_config
 
         # Mock bot
         mock_bot = MagicMock()
@@ -96,6 +105,7 @@ async def test_shutdown_cleanup_on_cancelled_error():
     # Mock all the dependencies
     mock_setup_personas = MagicMock()
     mock_setup_memory = MagicMock()
+    mock_setup_preferences = MagicMock()
 
     with patch('prism.main.load_config') as mock_load_config, \
          patch('prism.main.setup_logging'), \
@@ -104,12 +114,15 @@ async def test_shutdown_cleanup_on_cancelled_error():
          patch('prism.main.OpenRouterClient') as mock_orc_class, \
          patch('prism.main.register_commands'), \
          patch('prism.main.SettingsService'), \
+         patch('prism.main.UserPreferencesService'), \
+         patch('prism.main.load_git_sync_config') as mock_git_config, \
          patch('prism.main.PersonasService') as mock_personas_class, \
          patch('prism.main.MemoryService'), \
          patch('prism.main.EmojiIndexService'), \
          patch('prism.main.ChannelLockManager'), \
          patch.dict('sys.modules', {'prism.cogs.personas': MagicMock(setup=mock_setup_personas)}), \
          patch.dict('sys.modules', {'prism.cogs.memory': MagicMock(setup=mock_setup_memory)}), \
+         patch.dict('sys.modules', {'prism.cogs.preferences': MagicMock(setup=mock_setup_preferences)}), \
          patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
 
         # Configure mocks
@@ -123,6 +136,11 @@ async def test_shutdown_cleanup_on_cancelled_error():
         mock_config.openrouter_app_name = None
         mock_config.discord_token = 'test-token'
         mock_load_config.return_value = mock_config
+
+        # Mock git sync config (disabled by default)
+        mock_git_sync_config = MagicMock()
+        mock_git_sync_config.enabled = False
+        mock_git_config.return_value = mock_git_sync_config
 
         # Mock bot
         mock_bot = MagicMock()
