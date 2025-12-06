@@ -1,0 +1,88 @@
+name: Daily Database Backup
+
+on:
+  schedule:
+    # Run daily at 4 AM UTC
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    # Allow manual triggering
+
+jobs:
+  backup:
+    name: Backup Database to Google Drive
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Fly.io CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Download database from Fly.io
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          # Generate timestamp for backup filename
+          TIMESTAMP=$(date +%Y-%m-%d)
+          BACKUP_FILENAME="prism-backup-${TIMESTAMP}.db"
+
+          # Download database via SFTP
+          flyctl sftp get /data/prism.db ./${BACKUP_FILENAME} -a prism-discord-bot
+
+          # Export filename for later steps
+          echo "BACKUP_FILENAME=${BACKUP_FILENAME}" >> $GITHUB_ENV
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Google Drive dependencies
+        run: pip install google-api-python-client google-auth
+
+      - name: Upload to Google Drive
+        env:
+          GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+        run: |
+          python << 'EOF'
+          import os
+          import base64
+          import json
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+
+          # Decode credentials from base64
+          credentials_json = base64.b64decode(os.environ["GOOGLE_DRIVE_CREDENTIALS"])
+          credentials_dict = json.loads(credentials_json)
+
+          # Create credentials object
+          credentials = service_account.Credentials.from_service_account_info(
+              credentials_dict,
+              scopes=["https://www.googleapis.com/auth/drive.file"]
+          )
+
+          # Build Drive API client
+          service = build("drive", "v3", credentials=credentials)
+
+          # Get backup filename and folder ID
+          backup_filename = os.environ["BACKUP_FILENAME"]
+          folder_id = os.environ["GOOGLE_DRIVE_FOLDER_ID"]
+
+          # Upload file
+          file_metadata = {
+              "name": backup_filename,
+              "parents": [folder_id]
+          }
+          media = MediaFileUpload(backup_filename, mimetype="application/x-sqlite3")
+
+          file = service.files().create(
+              body=file_metadata,
+              media_body=media,
+              fields="id, name"
+          ).execute()
+
+          print(f"Uploaded {file.get('name')} with ID: {file.get('id')}")
+          EOF
