@@ -23,7 +23,7 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application code
 COPY prism/ ./prism/
 COPY personas/ ./personas/
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 
 # Install the project itself
 RUN /bin/uv sync --frozen --no-dev
