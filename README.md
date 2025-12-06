@@ -374,7 +374,7 @@ Contributions are welcome! Here's how you can help:
 
 ## 📝 License
 
-[Add your license here]
+MIT
 
 ## 🙏 Acknowledgments
 
