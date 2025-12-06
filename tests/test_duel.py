@@ -930,10 +930,10 @@ class TestDuelLoopTimeMode:
         with patch("prism.models.duel.time.monotonic", mock_monotonic):
             await run_time_mode_logic()
 
-        # Should have made some AI calls before time expired
-        assert call_count[0] >= 2
-        # State should be complete
-        assert duel_state.is_complete() is True
+            # Should have made some AI calls before time expired
+            assert call_count[0] >= 2
+            # State should be complete (must check within patch context)
+            assert duel_state.is_complete() is True
 
 
 class TestStrategicAwarenessInjection:
