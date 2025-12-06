@@ -39,14 +39,16 @@ cd prism
 
 ### 2. Install Dependencies
 
+This project uses [uv](https://docs.astral.sh/uv/) for fast, reliable dependency management.
+
 For basic usage:
 ```bash
-pip install -e .
+uv sync
 ```
 
 For development (includes pytest, ruff, coverage):
 ```bash
-pip install -e ".[dev]"
+uv sync --group dev
 ```
 
 ## ⚙️ Configuration
@@ -180,17 +182,17 @@ All commands are slash commands and work guild-wide.
 
 Run all tests:
 ```bash
-pytest
+uv run pytest
 ```
 
 Run tests with verbose output:
 ```bash
-pytest -v
+uv run pytest -v
 ```
 
 Run tests with coverage report:
 ```bash
-pytest --cov=prism --cov-report=html
+uv run pytest --cov=prism --cov-report=html
 ```
 
 View coverage in browser:
@@ -203,12 +205,12 @@ xdg-open htmlcov/index.html  # Linux
 
 Lint the codebase:
 ```bash
-ruff check prism/
+uv run ruff check prism/
 ```
 
 Auto-fix linting issues:
 ```bash
-ruff check prism/ --fix
+uv run ruff check prism/ --fix
 ```
 
 ### Test Coverage
@@ -387,8 +389,8 @@ Contributions are welcome! Here's how you can help:
 
 1. **Fork the repository**
 2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
-3. **Make your changes** and ensure tests pass: `pytest`
-4. **Lint your code**: `ruff check prism/`
+3. **Make your changes** and ensure tests pass: `uv run pytest`
+4. **Lint your code**: `uv run ruff check prism/`
 5. **Commit your changes**: `git commit -m 'Add amazing feature'`
 6. **Push to the branch**: `git push origin feature/amazing-feature`
 7. **Open a Pull Request**
