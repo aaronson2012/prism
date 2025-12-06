@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from typing import Any
 
@@ -34,6 +35,36 @@ DEFAULT_UNICODE_EMOJIS = [
     "eyes",
     "clap",
 ]
+
+# Discord message character limit
+DISCORD_MESSAGE_LIMIT = 2000
+
+# Max tokens for duel responses (keeps them short and conversational)
+DUEL_MAX_TOKENS = 250
+
+
+def _clip_to_discord_limit(text: str, max_len: int = DISCORD_MESSAGE_LIMIT) -> str:
+    """Truncate text to fit within Discord's message limit.
+
+    Args:
+        text: The text to truncate.
+        max_len: Maximum length allowed.
+
+    Returns:
+        The truncated text, with ellipsis if truncated.
+    """
+    if len(text) <= max_len:
+        return text
+
+    # Leave room for ellipsis
+    truncated = text[: max_len - 3].rstrip()
+
+    # Avoid leaving partial custom emoji tokens
+    partial_idx = truncated.rfind("<")
+    if partial_idx != -1 and ">" not in truncated[partial_idx:]:
+        truncated = truncated[:partial_idx].rstrip()
+
+    return truncated + "..."
 
 
 async def simulate_typing(channel: discord.abc.Messageable, message: str) -> None:
@@ -500,12 +531,13 @@ class DuelCog(discord.Cog):
             model = persona_record.data.model
             temperature = persona_record.data.temperature
 
-            # Call AI for response with error handling
+            # Call AI for response with error handling (limit tokens for brevity)
             try:
                 response_text, _meta = await self.bot.prism_orc.chat_completion(  # type: ignore[attr-defined]
                     messages=messages,
                     model=model,
                     temperature=temperature,
+                    max_tokens=DUEL_MAX_TOKENS,
                 )
             except Exception as e:
                 log.error(
@@ -526,6 +558,7 @@ class DuelCog(discord.Cog):
 
         # Send message - this may raise Discord exceptions that should propagate
         formatted_message = f"**{display_name}:** {response_text}"
+        formatted_message = _clip_to_discord_limit(formatted_message)
         try:
             sent_message = await channel.send(formatted_message)
         except discord.NotFound:
@@ -582,6 +615,8 @@ class DuelCog(discord.Cog):
             )
 
             if emoji_to_use:
+                # Add a human-like delay before reacting (1-3 seconds)
+                await asyncio.sleep(random.uniform(1.0, 3.0))
                 # Add the reaction
                 await message.add_reaction(emoji_to_use)
                 # Track the used reaction
@@ -667,8 +702,8 @@ class DuelCog(discord.Cog):
         """
         # Build duel context
         duel_context = (
-            f"\n\nYou are participating in a debate on the topic: \"{duel_state.topic}\"\n"
-            f"Argue your position passionately while staying in character."
+            f"\n\nYou're in a quick-fire debate on: \"{duel_state.topic}\"\n"
+            f"Keep responses SHORT (2-3 sentences). Be witty, not wordy. Stay in character."
         )
 
         # Add strategic awareness
@@ -702,10 +737,14 @@ class DuelCog(discord.Cog):
 
         # Add user message with topic as initial prompt
         if not duel_state.messages:
-            # First message: introduce the topic
+            # First message: introduce the topic (keep it conversational and brief)
             messages.append({
                 "role": "user",
-                "content": f"The debate topic is: \"{duel_state.topic}\"\n\nPlease state your opening argument.",
+                "content": (
+                    f"Topic: \"{duel_state.topic}\"\n\n"
+                    "Give a quick, punchy take on this. Keep it short - 2-3 sentences max. "
+                    "This is banter, not a speech!"
+                ),
             })
         else:
             # Add conversation history
@@ -722,10 +761,10 @@ class DuelCog(discord.Cog):
                     # Format opponent's message with their name for context
                     messages.append({"role": "user", "content": f"{msg_display}: {msg_content}"})
 
-            # Add prompt for continuation
+            # Add prompt for continuation (keep it snappy)
             messages.append({
                 "role": "user",
-                "content": "Please continue the debate with your response.",
+                "content": "Fire back! Keep it short and spicy - 2-3 sentences.",
             })
 
         return messages
