@@ -1,0 +1,13 @@
+task_groups:
+  - name: SettingsService Updates
+    claude_code_subagent: implementer
+    status: complete
+  - name: LengthCog Creation
+    claude_code_subagent: implementer
+    status: complete
+  - name: Response Length Prompt Injection
+    claude_code_subagent: implementer
+    status: complete
+  - name: Cog Registration
+    claude_code_subagent: implementer
+    status: complete

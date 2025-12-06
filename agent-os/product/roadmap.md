@@ -20,11 +20,11 @@ The following features are implemented and working:
 
 ## Planned Features
 
-1. [ ] **User Preferences Storage** - Store per-user preferences in the database (preferred persona, response style, etc.) that persist across sessions `S`
+1. [x] **User Preferences Storage** - Store per-user preferences in the database (preferred persona, response style, etc.) that persist across sessions `S`
 
-2. [ ] **User Preference Commands** - Slash commands for users to view and update their personal preferences (`/preferences view`, `/preferences set`) `S`
+2. [x] **User Preference Commands** - Slash commands for users to view and update their personal preferences (`/preferences view`, `/preferences set`) `S`
 
-3. [ ] **Per-User Response Customization** - Apply stored user preferences when generating responses (e.g., verbosity level, formality, emoji density) `M`
+3. [x] **Per-User Response Customization** - Apply stored user preferences when generating responses (e.g., verbosity level, formality, emoji density) `M`
 
 4. [ ] **Model Configuration Schema** - Define a configuration schema for multiple AI models with their capabilities, costs, and use cases `S`
 
