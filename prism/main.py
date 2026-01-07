@@ -138,7 +138,7 @@ def _load_base_guidelines_text() -> str:
         "- If unsure, say so briefly and propose a sensible next step.\n"
         "- Keep all responses under 2000 characters to fit within Discord's message limit.\n\n"
         "Context and focus guidelines:\n"
-        "- Focus primarily on the latest user message—that is your main task.\n"
+        "- Focus primarily on the latest user message - that is your main task.\n"
         "- Chat history is provided as distant context for reference only.\n"
         "- Only reference chat history if it is directly relevant to the current message.\n"
         "- Do not go off on tangents based on old messages; stay focused on what the user just said.\n"
