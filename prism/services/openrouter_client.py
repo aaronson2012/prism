@@ -140,32 +140,23 @@ class OpenRouterClient:
             raise OpenRouterError(f"Malformed response from OpenRouter: {data}") from exc
 
         # Extract sources/citations from the response (for :online models)
-        sources: list[dict[str, Any]] = []
+        def _extract_sources(obj: dict[str, Any] | None, *field_names: str) -> list[dict[str, Any]]:
+            """Extract sources from an object by checking multiple field names."""
+            if not obj:
+                return []
+            for field_name in field_names:
+                if field_name in obj:
+                    sources_data = obj.get(field_name)
+                    if isinstance(sources_data, list):
+                        return sources_data
+            return []
         
         # Check for sources in various possible locations in the response
-        # 1. In the message object (common for some providers)
-        if message_obj and "sources" in message_obj:
-            sources_data = message_obj.get("sources")
-            if isinstance(sources_data, list):
-                sources = sources_data
-        
-        # 2. In the choice object
-        if not sources and choice and "sources" in choice:
-            sources_data = choice.get("sources")
-            if isinstance(sources_data, list):
-                sources = sources_data
-        
-        # 3. In the root data object
-        if not sources and "sources" in data:
-            sources_data = data.get("sources")
-            if isinstance(sources_data, list):
-                sources = sources_data
-        
-        # 4. Check for citations field as well (alternative naming)
-        if not sources and message_obj and "citations" in message_obj:
-            citations_data = message_obj.get("citations")
-            if isinstance(citations_data, list):
-                sources = citations_data
+        sources = (
+            _extract_sources(message_obj, "sources", "citations")
+            or _extract_sources(choice, "sources", "citations")
+            or _extract_sources(data, "sources", "citations")
+        )
 
         meta = {
             "request_id": request_id,
