@@ -461,7 +461,7 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
 
                 # Load chat history and format it as context in system prompt instead of separate messages
                 # This prevents the AI from treating old messages as equally important to the current request
-                history = await bot.prism_memory.get_recent_window(message.guild.id, message.channel.id, max_messages=CHAT_HISTORY_MAX_MESSAGES)
+                history = await bot.prism_memory.get_recent_window(message.guild.id, message.channel.id, CHAT_HISTORY_MAX_MESSAGES)
                 
                 if history:
                     # Format history as a text block for context
@@ -477,6 +477,9 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                             history_lines.append(f"User: {msg_content}")
                         elif role == "assistant":
                             history_lines.append(f"Assistant: {msg_content}")
+                        else:
+                            # Skip system messages and other roles - they shouldn't be in user-facing history
+                            log.debug("Skipping message with unhandled role in history: %s", role)
                     
                     if history_lines:
                         history_context = "\n".join(history_lines)
