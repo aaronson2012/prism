@@ -50,16 +50,20 @@ def strip_invalid_emoji_shortcodes(text: str) -> str:
         return text
 
     emoji_lib = _get_emoji_lib()
+    # Check once if emoji library has the emojize method we need
+    has_emojize = emoji_lib is not None and hasattr(emoji_lib, "emojize")
 
     def _replace_invalid(match: re.Match) -> str:
         shortcode_name = match.group(2)
         shortcode = f":{shortcode_name}:"
         
         # Check if this is a valid Unicode emoji shortcode
-        if emoji_lib and hasattr(emoji_lib, "emojize"):
+        if has_emojize:
             try:
                 converted = emoji_lib.emojize(shortcode, language="en")
-                # If conversion resulted in something different, it's a valid emoji
+                # The emoji library's emojize() returns the Unicode emoji character
+                # if the shortcode is valid, otherwise returns the shortcode unchanged.
+                # We rely on this behavior to determine validity.
                 if converted != shortcode:
                     # Keep the shortcode as-is
                     return match.group(0)

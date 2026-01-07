@@ -252,7 +252,7 @@ def test_strip_invalid_emoji_shortcodes_mixed_valid_invalid():
     # Invalid emoji should be removed
     assert ":fakemoji:" not in result
     # Check overall structure
-    assert "Valid :fire: and invalid here" == result
+    assert result == "Valid :fire: and invalid here"
 
 
 def test_strip_invalid_emoji_shortcodes_multiple_valid():
