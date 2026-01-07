@@ -60,15 +60,17 @@ def strip_invalid_emoji_shortcodes(text: str) -> str:
         # Check if this is a valid Unicode emoji shortcode
         if has_emojize:
             try:
+                # Use English language for emoji shortcodes as it's the standard
+                # supported by Discord. The emoji library's emojize() returns the
+                # Unicode emoji character if the shortcode is valid, otherwise
+                # returns the shortcode unchanged.
                 converted = emoji_lib.emojize(shortcode, language="en")
-                # The emoji library's emojize() returns the Unicode emoji character
-                # if the shortcode is valid, otherwise returns the shortcode unchanged.
-                # We rely on this behavior to determine validity.
                 if converted != shortcode:
                     # Keep the shortcode as-is
                     return match.group(0)
-            except Exception:
-                # If emoji library fails, treat as invalid
+            except (AttributeError, TypeError, ValueError):
+                # If emoji library fails to process the shortcode, treat as invalid.
+                # Common cases: malformed shortcode, unsupported format.
                 pass
         
         # Invalid shortcode - remove it and normalize whitespace
