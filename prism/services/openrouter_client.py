@@ -139,10 +139,39 @@ class OpenRouterClient:
         except (KeyError, TypeError, IndexError) as exc:
             raise OpenRouterError(f"Malformed response from OpenRouter: {data}") from exc
 
+        # Extract sources/citations from the response (for :online models)
+        sources: list[dict[str, Any]] = []
+        
+        # Check for sources in various possible locations in the response
+        # 1. In the message object (common for some providers)
+        if message_obj and "sources" in message_obj:
+            sources_data = message_obj.get("sources")
+            if isinstance(sources_data, list):
+                sources = sources_data
+        
+        # 2. In the choice object
+        if not sources and choice and "sources" in choice:
+            sources_data = choice.get("sources")
+            if isinstance(sources_data, list):
+                sources = sources_data
+        
+        # 3. In the root data object
+        if not sources and "sources" in data:
+            sources_data = data.get("sources")
+            if isinstance(sources_data, list):
+                sources = sources_data
+        
+        # 4. Check for citations field as well (alternative naming)
+        if not sources and message_obj and "citations" in message_obj:
+            citations_data = message_obj.get("citations")
+            if isinstance(citations_data, list):
+                sources = citations_data
+
         meta = {
             "request_id": request_id,
             "model": data.get("model", model),
             "usage": data.get("usage"),
+            "sources": sources,
         }
         return text, meta
 

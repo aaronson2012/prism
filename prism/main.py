@@ -54,6 +54,35 @@ EMOJI_DENSITY_GUIDANCE = {
 }
 
 
+def _format_sources(sources: list[dict]) -> str:
+    """Format sources into a Sources: section for appending to replies."""
+    if not sources:
+        return ""
+    
+    # Filter and format valid sources
+    formatted_sources = []
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        
+        # Try to extract URL and title from various possible formats
+        url = source.get("url") or source.get("link") or source.get("href")
+        title = source.get("title") or source.get("name")
+        
+        if url:
+            if title:
+                formatted_sources.append(f"- {title}: {url}")
+            else:
+                formatted_sources.append(f"- {url}")
+    
+    if not formatted_sources:
+        return ""
+    
+    # Build the sources section
+    sources_text = "\n\n**Sources:**\n" + "\n".join(formatted_sources)
+    return sources_text
+
+
 def _clip_reply_to_limit(text: str) -> tuple[str, bool]:
     """Ensure replies respect Discord's 2000-character limit by silently truncating if needed."""
     if not text:
@@ -143,6 +172,11 @@ def _load_base_guidelines_text() -> str:
         "- Only reference chat history if it is directly relevant to the current message.\n"
         "- Do not go off on tangents based on old messages; stay focused on what the user just said.\n"
         "- If the latest message is unrelated to previous context, treat it as a fresh topic.\n\n"
+        "Web search guidelines:\n"
+        "- Only perform web searches when absolutely necessary - when you need current information, recent events, or facts you don't have.\n"
+        "- For general conversation, questions you can answer from your knowledge, or casual chat, DO NOT search the web.\n"
+        "- Do not mention or reference sources in your main response text.\n"
+        "- Sources will be automatically formatted and appended separately if used.\n\n"
         "Global emoji guidelines (conversation-wide):\n"
         "- Be emoji-eager: include at least one emoji per sentence unless the user explicitly asks for no emojis.\n"
         "- Prefer custom server emojis when available; otherwise use appropriate Unicode emojis.\n"
@@ -465,6 +499,16 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                     chosen_model = persona.data.model or cfg.default_model if persona else cfg.default_model
                     text, _meta = await orc.chat_completion(messages, model=chosen_model, max_tokens=max_tokens)
                     reply = text.strip() if text else "(no content)"
+                    
+                    # Extract and format sources from metadata if present
+                    sources = _meta.get("sources", [])
+                    sources_text = _format_sources(sources) if sources else ""
+                    
+                    # Log if sources were used
+                    if sources_text:
+                        log.info("Web sources used in response (guild=%s channel=%s): %d sources", 
+                                message.guild.id, message.channel.id, len(sources))
+                    
                     # Emoji enforcement: ensure at least one emoji per sentence when enabled,
                     # spread them out, and avoid duplicate emoji tokens in a single message.
                     # Skip emoji enforcement entirely when user density is "none"
@@ -480,6 +524,11 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
 
                             # Apply full emoji enforcement pipeline
                             reply = enforce_emoji_distribution(reply, custom_tokens, unicode_tokens)
+                    
+                    # Append sources after emoji enforcement but before truncation
+                    if sources_text:
+                        reply = reply + sources_text
+                    
                     original_length = len(reply)
                     reply, was_truncated = _clip_reply_to_limit(reply)
                     if was_truncated:
