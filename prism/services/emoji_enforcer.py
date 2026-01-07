@@ -36,7 +36,8 @@ def strip_invalid_emoji_shortcodes(text: str) -> str:
     These look like :name: but are NOT valid Discord custom emoji tokens
     (which have the format <:name:id> or <a:name:id>).
 
-    This function strips these invalid shortcodes and normalizes surrounding
+    This function strips these invalid shortcodes while preserving valid Unicode
+    emoji shortcodes (e.g., :fire:, :thumbs_up:) and normalizes surrounding
     whitespace to avoid double spaces.
 
     Args:
@@ -48,7 +49,25 @@ def strip_invalid_emoji_shortcodes(text: str) -> str:
     if not text or ":" not in text:
         return text
 
+    emoji_lib = _get_emoji_lib()
+
     def _replace_invalid(match: re.Match) -> str:
+        shortcode_name = match.group(2)
+        shortcode = f":{shortcode_name}:"
+        
+        # Check if this is a valid Unicode emoji shortcode
+        if emoji_lib and hasattr(emoji_lib, "emojize"):
+            try:
+                converted = emoji_lib.emojize(shortcode, language="en")
+                # If conversion resulted in something different, it's a valid emoji
+                if converted != shortcode:
+                    # Keep the shortcode as-is
+                    return match.group(0)
+            except Exception:
+                # If emoji library fails, treat as invalid
+                pass
+        
+        # Invalid shortcode - remove it and normalize whitespace
         leading_space = match.group(1)
         trailing_space = match.group(3)
         # If there was space on both sides, collapse to single space
