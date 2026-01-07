@@ -47,6 +47,8 @@ RESPONSE_LENGTH_MAX_TOKENS = {
 
 # Chat history configuration for context window
 CHAT_HISTORY_MAX_MESSAGES = 20  # Maximum number of recent messages to include as context
+CHAT_HISTORY_MAX_CHARS_PER_MESSAGE = 500  # Truncate individual history messages to this length
+CHAT_HISTORY_MAX_TOTAL_CHARS = 8000  # Maximum total characters for all history content
 
 # Emoji density guidance text mapping for system prompt injection
 EMOJI_DENSITY_GUIDANCE = {
@@ -466,20 +468,72 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                 if history:
                     # Format history as a text block for context
                     history_lines = []
-                    for msg in history:
+                    total_chars = 0
+                    
+                    for idx, msg in enumerate(history):
                         role = msg.get("role")
-                        msg_content = msg.get("content")
-                        # Log if message structure is unexpected
-                        if role is None or msg_content is None:
-                            log.debug("Unexpected message structure in history: role=%s, content=%s", role, msg_content)
+                        message_content = msg.get("content")
+                        
+                        # Log if message structure is unexpected with full context
+                        if role is None or message_content is None:
+                            content_preview = None
+                            if message_content is not None:
+                                content_str = str(message_content)
+                                max_len = 200
+                                content_preview = (content_str[:max_len] + "…") if len(content_str) > max_len else content_str
+                            log.debug(
+                                "Unexpected message structure in history (guild=%s, channel=%s, index=%d): role=%s, content_preview=%s",
+                                message.guild.id,
+                                message.channel.id,
+                                idx,
+                                role,
+                                content_preview,
+                            )
                             continue
+                        
                         if role == "user":
-                            history_lines.append(f"User: {msg_content}")
+                            prefix = "User: "
                         elif role == "assistant":
-                            history_lines.append(f"Assistant: {msg_content}")
+                            prefix = "Assistant: "
                         else:
                             # Skip system messages and other roles - they shouldn't be in user-facing history
-                            log.debug("Skipping message with unhandled role in history: %s", role)
+                            log.debug(
+                                "Skipping message with unhandled role in history (guild=%s, channel=%s, index=%d): %s",
+                                message.guild.id,
+                                message.channel.id,
+                                idx,
+                                role,
+                            )
+                            continue
+                        
+                        # Sanitize content to prevent breaking the history framing structure
+                        # Replace potential delimiters and problematic patterns
+                        sanitized_content = str(message_content)
+                        # Escape triple dashes that could be confused with our delimiter
+                        sanitized_content = sanitized_content.replace("---", "–––")
+                        # Escape role prefixes that could confuse parsing
+                        sanitized_content = sanitized_content.replace("\nUser: ", "\nUser - ")
+                        sanitized_content = sanitized_content.replace("\nAssistant: ", "\nAssistant - ")
+                        
+                        # Truncate individual messages to avoid consuming too much context
+                        if len(sanitized_content) > CHAT_HISTORY_MAX_CHARS_PER_MESSAGE:
+                            sanitized_content = sanitized_content[:CHAT_HISTORY_MAX_CHARS_PER_MESSAGE] + "…"
+                        
+                        formatted_line = prefix + sanitized_content
+                        
+                        # Check if adding this message would exceed total character limit
+                        if total_chars + len(formatted_line) > CHAT_HISTORY_MAX_TOTAL_CHARS:
+                            log.debug(
+                                "Truncating history at message %d (guild=%s, channel=%s): would exceed max total chars (%d)",
+                                idx,
+                                message.guild.id,
+                                message.channel.id,
+                                CHAT_HISTORY_MAX_TOTAL_CHARS,
+                            )
+                            break
+                        
+                        history_lines.append(formatted_line)
+                        total_chars += len(formatted_line)
                     
                     if history_lines:
                         history_context = "\n".join(history_lines)
