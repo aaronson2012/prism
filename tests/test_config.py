@@ -25,7 +25,7 @@ class TestConfigDataclass:
             discord_token="test-token",
             openrouter_api_key="test-key",
         )
-        assert config.default_model == "google/gemini-2.5-flash"
+        assert config.default_model == "google/gemini-3-flash-preview"
         assert config.fallback_model == "google/gemini-2.5-flash-lite"
         assert config.openrouter_site_url is None
         assert config.openrouter_app_name is None
@@ -113,7 +113,7 @@ class TestLoadConfig:
             assert config.discord_token == "test-token"
             assert config.openrouter_api_key == "test-key"
             # Check defaults are applied
-            assert config.default_model == "google/gemini-2.5-flash"
+            assert config.default_model == "google/gemini-3-flash-preview"
             assert config.log_level == "INFO"
 
     def test_load_config_with_all_env_vars(self):
@@ -262,7 +262,7 @@ class TestLoadConfig:
         }
         with patch.dict(os.environ, env, clear=True):
             config = load_config()
-            assert config.default_model == "google/gemini-2.5-flash"
+            assert config.default_model == "google/gemini-3-flash-preview"
             assert config.fallback_model == "google/gemini-2.5-flash-lite"
 
     def test_load_config_openrouter_urls_empty_as_none(self):
