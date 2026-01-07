@@ -45,6 +45,9 @@ RESPONSE_LENGTH_MAX_TOKENS = {
     "detailed": None,  # No limit for detailed responses
 }
 
+# Chat history configuration for context window
+CHAT_HISTORY_MAX_MESSAGES = 20  # Maximum number of recent messages to include as context
+
 # Emoji density guidance text mapping for system prompt injection
 EMOJI_DENSITY_GUIDANCE = {
     "none": "Do not use any emojis.",
@@ -458,26 +461,31 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
 
                 # Load chat history and format it as context in system prompt instead of separate messages
                 # This prevents the AI from treating old messages as equally important to the current request
-                history = await bot.prism_memory.get_recent_window(message.guild.id, message.channel.id, max_messages=20)
+                history = await bot.prism_memory.get_recent_window(message.guild.id, message.channel.id, max_messages=CHAT_HISTORY_MAX_MESSAGES)
                 
                 if history:
                     # Format history as a text block for context
                     history_lines = []
                     for msg in history:
-                        role = msg.get("role", "user")
-                        msg_content = msg.get("content", "")
+                        role = msg.get("role")
+                        msg_content = msg.get("content")
+                        # Log if message structure is unexpected
+                        if role is None or msg_content is None:
+                            log.debug("Unexpected message structure in history: role=%s, content=%s", role, msg_content)
+                            continue
                         if role == "user":
                             history_lines.append(f"User: {msg_content}")
                         elif role == "assistant":
                             history_lines.append(f"Assistant: {msg_content}")
                     
-                    history_context = "\n".join(history_lines)
-                    # Add history as context in system prompt with clear framing
-                    system_prompt += (
-                        f"\n\nRecent conversation history (for context only - do NOT respond to these old messages):\n"
-                        f"---\n{history_context}\n---\n"
-                        f"End of conversation history. The user's CURRENT request follows below."
-                    )
+                    if history_lines:
+                        history_context = "\n".join(history_lines)
+                        # Add history as context in system prompt with clear framing
+                        system_prompt += (
+                            f"\n\nRecent conversation history (for context only - do NOT respond to these old messages):\n"
+                            f"---\n{history_context}\n---\n"
+                            f"End of conversation history. The user's CURRENT request follows below."
+                        )
                 
                 # Build messages array with only system prompt and current user message
                 # This structurally enforces that the current message is the primary task
