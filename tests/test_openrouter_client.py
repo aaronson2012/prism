@@ -153,3 +153,99 @@ async def test_client_cleanup(client):
     # If this doesn't raise an exception, cleanup worked
     assert True
 
+
+@pytest.mark.asyncio
+async def test_chat_completion_extracts_sources(client):
+    """Test that sources are extracted from API response."""
+    # Mock response with sources in message object
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.headers = {"x-request-id": "test-123"}
+    mock_response.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "content": "Here's information from the web.",
+                    "sources": [
+                        {"url": "https://example.com/article1", "title": "Example Article 1"},
+                        {"url": "https://example.com/article2", "title": "Example Article 2"},
+                    ]
+                }
+            }
+        ],
+        "model": "test/model:online",
+        "usage": {"prompt_tokens": 10, "completion_tokens": 7}
+    }
+    
+    with patch.object(client._client, 'post', new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_response
+        
+        messages = [{"role": "user", "content": "What's the latest news?"}]
+        text, meta = await client.chat_completion(messages)
+        
+        assert text == "Here's information from the web."
+        assert "sources" in meta
+        assert len(meta["sources"]) == 2
+        assert meta["sources"][0]["url"] == "https://example.com/article1"
+        assert meta["sources"][0]["title"] == "Example Article 1"
+
+
+@pytest.mark.asyncio
+async def test_chat_completion_no_sources(client):
+    """Test that sources field is empty list when not present."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.headers = {"x-request-id": "test-123"}
+    mock_response.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "content": "Regular response without web search."
+                }
+            }
+        ],
+        "model": "test/model",
+    }
+    
+    with patch.object(client._client, 'post', new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_response
+        
+        messages = [{"role": "user", "content": "Hello"}]
+        text, meta = await client.chat_completion(messages)
+        
+        assert text == "Regular response without web search."
+        assert "sources" in meta
+        assert meta["sources"] == []
+
+
+@pytest.mark.asyncio
+async def test_chat_completion_sources_in_root(client):
+    """Test extracting sources from root level of response."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.headers = {"x-request-id": "test-123"}
+    mock_response.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "content": "Response with sources at root level."
+                }
+            }
+        ],
+        "model": "test/model:online",
+        "sources": [
+            {"url": "https://example.com/article", "title": "Article Title"}
+        ]
+    }
+    
+    with patch.object(client._client, 'post', new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_response
+        
+        messages = [{"role": "user", "content": "Test"}]
+        text, meta = await client.chat_completion(messages)
+        
+        assert "sources" in meta
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["title"] == "Article Title"
+
+

@@ -16,6 +16,12 @@ Maintains conversation history per channel with automatic message pruning (30-da
 - **Emoji Deduplication**: Prevents repetitive emoji usage in responses
 - **Custom Emoji Descriptions**: Automatically generates descriptive metadata for server emojis
 
+### 🌐 Smart Web Search (`:online` Models)
+- **On-Demand Search**: Models with the `:online` suffix can search the web when needed for current information
+- **Intelligent Search Triggering**: Web searches are only performed when absolutely necessary - not on every message
+- **Automatic Source Citations**: When web sources are used, they're automatically formatted and appended as a "Sources:" section
+- **Seamless Integration**: Sources appear separately from the main response for cleaner conversation flow
+
 ### 🛠️ Custom Persona Creation
 Create new personas using AI assistance - just provide a brief description and let the bot generate a complete personality profile with system prompts.
 
