@@ -138,11 +138,11 @@ def _load_base_guidelines_text() -> str:
         "- If unsure, say so briefly and propose a sensible next step.\n"
         "- Keep all responses under 2000 characters to fit within Discord's message limit.\n\n"
         "Context and focus guidelines:\n"
-        "- Focus primarily on the latest user message - that is your main task.\n"
-        "- Chat history is provided as distant context for reference only.\n"
-        "- Only reference chat history if it is directly relevant to the current message.\n"
-        "- Do not go off on tangents based on old messages; stay focused on what the user just said.\n"
-        "- If the latest message is unrelated to previous context, treat it as a fresh topic.\n\n"
+        "- Your PRIMARY TASK is to respond ONLY to the user's current message below.\n"
+        "- Previous conversation history is shown in the system prompt for reference context only.\n"
+        "- DO NOT respond to, address, or continue topics from the conversation history unless the current message explicitly asks about them.\n"
+        "- Treat the current message as a fresh, standalone request unless it clearly references the history.\n"
+        "- If the current message seems unrelated to history, that's expected - respond only to what's being asked now.\n\n"
         "Global emoji guidelines (conversation-wide):\n"
         "- Be emoji-eager: include at least one emoji per sentence unless the user explicitly asks for no emojis.\n"
         "- Prefer custom server emojis when available; otherwise use appropriate Unicode emojis.\n"
@@ -456,8 +456,33 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                     except Exception as e:  # noqa: BLE001
                         log.debug("emoji suggestions failed: %s", e)
 
-                history = await bot.prism_memory.get_recent_window(message.guild.id, message.channel.id)
-                messages = [{"role": "system", "content": system_prompt}] + history + [
+                # Load chat history and format it as context in system prompt instead of separate messages
+                # This prevents the AI from treating old messages as equally important to the current request
+                history = await bot.prism_memory.get_recent_window(message.guild.id, message.channel.id, max_messages=20)
+                
+                if history:
+                    # Format history as a text block for context
+                    history_lines = []
+                    for msg in history:
+                        role = msg.get("role", "user")
+                        msg_content = msg.get("content", "")
+                        if role == "user":
+                            history_lines.append(f"User: {msg_content}")
+                        elif role == "assistant":
+                            history_lines.append(f"Assistant: {msg_content}")
+                    
+                    history_context = "\n".join(history_lines)
+                    # Add history as context in system prompt with clear framing
+                    system_prompt += (
+                        f"\n\nRecent conversation history (for context only - do NOT respond to these old messages):\n"
+                        f"---\n{history_context}\n---\n"
+                        f"End of conversation history. The user's CURRENT request follows below."
+                    )
+                
+                # Build messages array with only system prompt and current user message
+                # This structurally enforces that the current message is the primary task
+                messages = [
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": content}
                 ]
 
