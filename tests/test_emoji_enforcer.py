@@ -1,4 +1,5 @@
 """Tests for emoji enforcer module."""
+from unittest.mock import patch
 from prism.services.emoji_enforcer import (
     has_emoji,
     ensure_emoji_per_sentence,
@@ -263,4 +264,16 @@ def test_strip_invalid_emoji_shortcodes_multiple_valid():
     assert ":fire:" in result
     assert ":thumbs_up:" in result
     assert result == text
+
+
+def test_strip_invalid_emoji_shortcodes_without_emoji_library():
+    """Test that all shortcodes are removed when emoji library is unavailable."""
+    # Mock _get_emoji_lib to return None, simulating missing emoji library
+    with patch("prism.services.emoji_enforcer._get_emoji_lib", return_value=None):
+        text = "Hello :fire: and :fakemoji: world"
+        result = strip_invalid_emoji_shortcodes(text)
+        # Without emoji library, all shortcodes should be treated as invalid
+        assert ":fire:" not in result
+        assert ":fakemoji:" not in result
+        assert result == "Hello and world"
 
