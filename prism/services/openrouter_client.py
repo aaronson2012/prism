@@ -15,6 +15,25 @@ log = logging.getLogger(__name__)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
+def _extract_sources_from_obj(obj: dict[str, Any] | None, *field_names: str) -> list[dict[str, Any]]:
+    """Extract sources from an object by checking multiple field names.
+    
+    Args:
+        obj: Dictionary object to search for sources
+        field_names: Field names to check (e.g., "sources", "citations")
+        
+    Returns:
+        List of source dictionaries, or empty list if none found
+    """
+    if not obj:
+        return []
+    for field_name in field_names:
+        sources_data = obj.get(field_name)
+        if isinstance(sources_data, list):
+            return sources_data
+    return []
+
+
 @dataclass
 class OpenRouterConfig:
     api_key: str
@@ -140,22 +159,11 @@ class OpenRouterClient:
             raise OpenRouterError(f"Malformed response from OpenRouter: {data}") from exc
 
         # Extract sources/citations from the response (for :online models)
-        def _extract_sources(obj: dict[str, Any] | None, *field_names: str) -> list[dict[str, Any]]:
-            """Extract sources from an object by checking multiple field names."""
-            if not obj:
-                return []
-            for field_name in field_names:
-                if field_name in obj:
-                    sources_data = obj.get(field_name)
-                    if isinstance(sources_data, list):
-                        return sources_data
-            return []
-        
         # Check for sources in various possible locations in the response
         sources = (
-            _extract_sources(message_obj, "sources", "citations")
-            or _extract_sources(choice, "sources", "citations")
-            or _extract_sources(data, "sources", "citations")
+            _extract_sources_from_obj(message_obj, "sources", "citations")
+            or _extract_sources_from_obj(choice, "sources", "citations")
+            or _extract_sources_from_obj(data, "sources", "citations")
         )
 
         meta = {
