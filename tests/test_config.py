@@ -26,7 +26,7 @@ class TestConfigDataclass:
             openrouter_api_key="test-key",
         )
         assert config.default_model == "google/gemini-3-flash-preview:online"
-        assert config.fallback_model == "google/gemini-2.5-flash-lite"
+        assert config.fallback_model == "google/gemini-2.5-flash:online"
         assert config.openrouter_site_url is None
         assert config.openrouter_app_name is None
         assert config.db_path == "data/prism.db"
@@ -263,7 +263,7 @@ class TestLoadConfig:
         with patch.dict(os.environ, env, clear=True):
             config = load_config()
             assert config.default_model == "google/gemini-3-flash-preview:online"
-            assert config.fallback_model == "google/gemini-2.5-flash-lite"
+            assert config.fallback_model == "google/gemini-2.5-flash:online"
 
     def test_load_config_openrouter_urls_empty_as_none(self):
         """Test that empty OpenRouter URL/name becomes None."""
