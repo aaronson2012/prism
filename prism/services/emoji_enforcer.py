@@ -36,7 +36,8 @@ def strip_invalid_emoji_shortcodes(text: str) -> str:
     These look like :name: but are NOT valid Discord custom emoji tokens
     (which have the format <:name:id> or <a:name:id>).
 
-    This function strips these invalid shortcodes and normalizes surrounding
+    This function strips these invalid shortcodes while preserving valid Unicode
+    emoji shortcodes (e.g., :fire:, :thumbs_up:) and normalizes surrounding
     whitespace to avoid double spaces.
 
     Args:
@@ -48,7 +49,41 @@ def strip_invalid_emoji_shortcodes(text: str) -> str:
     if not text or ":" not in text:
         return text
 
+    emoji_lib = _get_emoji_lib()
+    # Check once if emoji library has the emojize method we need
+    has_emojize = emoji_lib is not None and hasattr(emoji_lib, "emojize")
+    # Cache validation results for shortcodes within this call to avoid
+    # repeatedly converting the same shortcode via emojize().
+    validated_shortcodes: dict[str, bool] = {}
+
     def _replace_invalid(match: re.Match) -> str:
+        shortcode_name = match.group(2)
+        shortcode = f":{shortcode_name}:"
+        
+        # Check if this is a valid Unicode emoji shortcode
+        if has_emojize:
+            is_valid = validated_shortcodes.get(shortcode)
+            if is_valid is None:
+                try:
+                    # Use English language for emoji shortcodes as it's the standard
+                    # supported by Discord. The emoji library's emojize() returns the
+                    # Unicode emoji character if the shortcode is valid, otherwise
+                    # returns the shortcode unchanged.
+                    converted = emoji_lib.emojize(shortcode, language="en")
+                    is_valid = converted != shortcode
+                except Exception:
+                    # If the emoji library fails for any reason, treat this shortcode
+                    # as invalid rather than propagating errors from a best-effort
+                    # normalization helper. Common cases: malformed shortcode,
+                    # unsupported format, or library-specific errors.
+                    is_valid = False
+                validated_shortcodes[shortcode] = is_valid
+
+            if is_valid:
+                # Keep the shortcode as-is
+                return match.group(0)
+        
+        # Invalid shortcode - remove it and normalize whitespace
         leading_space = match.group(1)
         trailing_space = match.group(3)
         # If there was space on both sides, collapse to single space

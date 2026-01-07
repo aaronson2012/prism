@@ -45,6 +45,11 @@ RESPONSE_LENGTH_MAX_TOKENS = {
     "detailed": None,  # No limit for detailed responses
 }
 
+# Chat history configuration for context window
+CHAT_HISTORY_MAX_MESSAGES = 20  # Maximum number of recent messages to include as context
+CHAT_HISTORY_MAX_CHARS_PER_MESSAGE = 500  # Truncate individual history messages to this length
+CHAT_HISTORY_MAX_TOTAL_CHARS = 8000  # Maximum total characters for all history content
+
 # Emoji density guidance text mapping for system prompt injection
 EMOJI_DENSITY_GUIDANCE = {
     "none": "Do not use any emojis.",
@@ -167,11 +172,11 @@ def _load_base_guidelines_text() -> str:
         "- If unsure, say so briefly and propose a sensible next step.\n"
         "- Keep all responses under 2000 characters to fit within Discord's message limit.\n\n"
         "Context and focus guidelines:\n"
-        "- Focus primarily on the latest user message - that is your main task.\n"
-        "- Chat history is provided as distant context for reference only.\n"
-        "- Only reference chat history if it is directly relevant to the current message.\n"
-        "- Do not go off on tangents based on old messages; stay focused on what the user just said.\n"
-        "- If the latest message is unrelated to previous context, treat it as a fresh topic.\n\n"
+        "- Your PRIMARY TASK is to respond ONLY to the user's current message below.\n"
+        "- Previous conversation history is shown in the system prompt for reference context only.\n"
+        "- DO NOT respond to, address, or continue topics from the conversation history unless the current message explicitly asks about them.\n"
+        "- Treat the current message as a fresh, standalone request unless it clearly references the history.\n"
+        "- If the current message seems unrelated to history, that's expected - respond only to what's being asked now.\n\n"
         "Web search guidelines:\n"
         "- Only perform web searches when absolutely necessary - when you need current information, recent events, or facts you don't have.\n"
         "- For general conversation, questions you can answer from your knowledge, or casual chat, DO NOT search the web.\n"
@@ -490,8 +495,93 @@ def register_commands(bot, orc: OpenRouterClient, cfg) -> None:
                     except Exception as e:  # noqa: BLE001
                         log.debug("emoji suggestions failed: %s", e)
 
-                history = await bot.prism_memory.get_recent_window(message.guild.id, message.channel.id)
-                messages = [{"role": "system", "content": system_prompt}] + history + [
+                # Load chat history and format it as context in system prompt instead of separate messages
+                # This prevents the AI from treating old messages as equally important to the current request
+                history = await bot.prism_memory.get_recent_window(message.guild.id, message.channel.id, CHAT_HISTORY_MAX_MESSAGES)
+                
+                if history:
+                    # Format history as a text block for context
+                    history_lines = []
+                    total_chars = 0
+                    
+                    for idx, msg in enumerate(history):
+                        role = msg.get("role")
+                        message_content = msg.get("content")
+                        
+                        # Log if message structure is unexpected with full context
+                        if role is None or message_content is None:
+                            content_preview = None
+                            if message_content is not None:
+                                content_str = str(message_content)
+                                max_len = 200
+                                content_preview = (content_str[:max_len] + "…") if len(content_str) > max_len else content_str
+                            log.debug(
+                                "Unexpected message structure in history (guild=%s, channel=%s, index=%d): role=%s, content_preview=%s",
+                                message.guild.id,
+                                message.channel.id,
+                                idx,
+                                role,
+                                content_preview,
+                            )
+                            continue
+                        
+                        if role == "user":
+                            prefix = "User: "
+                        elif role == "assistant":
+                            prefix = "Assistant: "
+                        else:
+                            # Skip system messages and other roles - they shouldn't be in user-facing history
+                            log.debug(
+                                "Skipping message with unhandled role in history (guild=%s, channel=%s, index=%d): %s",
+                                message.guild.id,
+                                message.channel.id,
+                                idx,
+                                role,
+                            )
+                            continue
+                        
+                        # Sanitize content to prevent breaking the history framing structure
+                        # Replace potential delimiters and problematic patterns
+                        sanitized_content = str(message_content)
+                        # Escape triple dashes that could be confused with our delimiter
+                        sanitized_content = sanitized_content.replace("---", "–––")
+                        # Escape role prefixes that could confuse parsing
+                        sanitized_content = sanitized_content.replace("\nUser: ", "\nUser - ")
+                        sanitized_content = sanitized_content.replace("\nAssistant: ", "\nAssistant - ")
+                        
+                        # Truncate individual messages to avoid consuming too much context
+                        if len(sanitized_content) > CHAT_HISTORY_MAX_CHARS_PER_MESSAGE:
+                            sanitized_content = sanitized_content[:CHAT_HISTORY_MAX_CHARS_PER_MESSAGE] + "…"
+                        
+                        formatted_line = prefix + sanitized_content
+                        
+                        # Check if adding this message would exceed total character limit
+                        if total_chars + len(formatted_line) > CHAT_HISTORY_MAX_TOTAL_CHARS:
+                            log.debug(
+                                "Truncating history at message %d (guild=%s, channel=%s): would exceed max total chars (%d)",
+                                idx,
+                                message.guild.id,
+                                message.channel.id,
+                                CHAT_HISTORY_MAX_TOTAL_CHARS,
+                            )
+                            break
+                        
+                        history_lines.append(formatted_line)
+                        total_chars += len(formatted_line)
+                    
+                    if history_lines:
+                        history_context = "\n".join(history_lines)
+                        # Add history as context in system prompt with clear framing
+                        system_prompt += (
+                            f"\n\nRecent conversation history (for context only - do NOT respond to these old messages):\n"
+                            f"---\n{history_context}\n---\n"
+                            f"End of conversation history. The user's CURRENT request follows below."
+                        )
+                
+                # Build messages array with only system prompt and current user message
+                # This structurally enforces that the current message is the primary task
+                messages = [
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": content}
                 ]
 
