@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 class Config:
     discord_token: str
     openrouter_api_key: str
-    default_model: str = "google/gemini-3-flash-preview"
+    default_model: str = "google/gemini-3-flash-preview:online"
     fallback_model: str = "google/gemini-2.5-flash-lite"
     openrouter_site_url: str | None = None
     openrouter_app_name: str | None = None
@@ -65,7 +65,7 @@ def load_config() -> Config:
     return Config(
         discord_token=discord_token,
         openrouter_api_key=openrouter_api_key,
-        default_model=os.getenv("DEFAULT_MODEL", "google/gemini-3-flash-preview").strip() or "google/gemini-3-flash-preview",
+        default_model=os.getenv("DEFAULT_MODEL", "google/gemini-3-flash-preview:online").strip() or "google/gemini-3-flash-preview:online",
         fallback_model=os.getenv("FALLBACK_MODEL", "google/gemini-2.5-flash-lite").strip() or "google/gemini-2.5-flash-lite",
         openrouter_site_url=os.getenv("OPENROUTER_SITE_URL") or None,
         openrouter_app_name=os.getenv("OPENROUTER_APP_NAME") or None,

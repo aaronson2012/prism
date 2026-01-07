@@ -67,7 +67,7 @@ DISCORD_TOKEN=your_discord_bot_token_here
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 
 # AI Model Configuration (Optional - defaults shown)
-DEFAULT_MODEL=google/gemini-3-flash-preview
+DEFAULT_MODEL=google/gemini-3-flash-preview:online
 FALLBACK_MODEL=google/gemini-2.5-flash-lite
 
 # Feature Toggles (Optional - defaults shown)
