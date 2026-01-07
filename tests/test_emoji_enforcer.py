@@ -1,4 +1,5 @@
 """Tests for emoji enforcer module."""
+from unittest.mock import patch
 from prism.services.emoji_enforcer import (
     has_emoji,
     ensure_emoji_per_sentence,
@@ -232,4 +233,47 @@ def test_enforce_emoji_distribution_strips_invalid():
     result = enforce_emoji_distribution(text, [], [])
     assert ":fake:" not in result
     assert "  " not in result
+
+
+def test_strip_invalid_emoji_shortcodes_preserves_valid_unicode():
+    """Test that valid Unicode emoji shortcodes are preserved."""
+    # Test with valid Unicode emoji shortcodes
+    text = "Hello :fire: world"
+    result = strip_invalid_emoji_shortcodes(text)
+    assert ":fire:" in result
+    assert result == "Hello :fire: world"
+
+
+def test_strip_invalid_emoji_shortcodes_mixed_valid_invalid():
+    """Test mixed valid and invalid shortcodes."""
+    text = "Valid :fire: and invalid :fakemoji: here"
+    result = strip_invalid_emoji_shortcodes(text)
+    # Valid emoji should be preserved
+    assert ":fire:" in result
+    # Invalid emoji should be removed
+    assert ":fakemoji:" not in result
+    # Check overall structure
+    assert result == "Valid :fire: and invalid here"
+
+
+def test_strip_invalid_emoji_shortcodes_multiple_valid():
+    """Test multiple valid Unicode emoji shortcodes."""
+    text = "Love :red_heart: and fire :fire: and thumbs :thumbs_up:"
+    result = strip_invalid_emoji_shortcodes(text)
+    assert ":red_heart:" in result
+    assert ":fire:" in result
+    assert ":thumbs_up:" in result
+    assert result == text
+
+
+def test_strip_invalid_emoji_shortcodes_without_emoji_library():
+    """Test that all shortcodes are removed when emoji library is unavailable."""
+    # Mock _get_emoji_lib to return None, simulating missing emoji library
+    with patch("prism.services.emoji_enforcer._get_emoji_lib", return_value=None):
+        text = "Hello :fire: and :fakemoji: world"
+        result = strip_invalid_emoji_shortcodes(text)
+        # Without emoji library, all shortcodes should be treated as invalid
+        assert ":fire:" not in result
+        assert ":fakemoji:" not in result
+        assert result == "Hello and world"
 
